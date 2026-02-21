@@ -23,10 +23,9 @@
 \if@twocolumn\else\input twocolumn.sty\fi
 \usepackage{mathptmx}  % times roman, including math (where possible)
 
-% hopefully embeds all fonts in pdf
-\usepackage[T1]{fontenc}
+% font encoding: avoid T1 fontenc which requires ptmb8t.vf virtual font files
+% that may be missing or corrupted in some environments (e.g., TeXlyre)
 \usepackage[utf8]{inputenc}
-% \usepackage{pslatex}  % removed: conflicts with mathptmx and causes ptmb8t.vf errors
 
 % appearance
 \usepackage[kerning,spacing]{microtype} % more compact and arguably nicer
