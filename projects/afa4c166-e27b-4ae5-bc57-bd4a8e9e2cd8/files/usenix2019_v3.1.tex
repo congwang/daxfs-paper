@@ -9,12 +9,12 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,fit,calc,patterns,decorations.pathreplacing}
 \usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{textcomp}
 \usepackage{booktabs}
 \usepackage{listings}
 \usepackage{xspace}
 \usepackage{multirow}
-
-\usepackage{filecontents}
 
 \lstset{
   basicstyle=\ttfamily\small,
@@ -27,231 +27,6 @@
 \newcommand{\daxfs}{\textsc{DaxFS}\xspace}
 \newcommand{\ie}{\textit{i.e.}\xspace}
 \newcommand{\eg}{\textit{e.g.}\xspace}
-
-%-------------------------------------------------------------------------------
-\begin{filecontents}{\jobname.bib}
-%-------------------------------------------------------------------------------
-@InProceedings{xu16:nova,
-  author =       {Xu, Jian and Swanson, Steven},
-  title =        {{NOVA}: A Log-structured File System for Hybrid
-                  Volatile/Non-volatile Main Memories},
-  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
-  year =         2016,
-  pages =        {323--338}
-}
-
-@InProceedings{dulloor14:pmfs,
-  author =       {Dulloor, Subramanya R. and Kumar, Sanjay and Keshavamurthy, Anil
-                  and Lantz, Philip and Reddy, Dheeraj and Sankaran, Rajesh and Jackson, Jeff},
-  title =        {System Software for Persistent Memory},
-  booktitle =    {ACM European Conference on Computer Systems (EuroSys)},
-  year =         2014,
-  pages =        {1--15}
-}
-
-@InProceedings{wu21:bpfs,
-  author =       {Wu, Xiaojian and Reddy, A. L. Narasimha},
-  title =        {{BPFS}: A File System for Short-Lived Objects on Byte-Addressable Persistent Memory},
-  booktitle =    {ACM Transactions on Storage (TOS)},
-  year =         2021
-}
-
-@InProceedings{kwon17:strata,
-  author =       {Kwon, Youngjin and Yu, Henrique and Peter, Simon and
-                  Turner, Christopher J. and Rossbach, Christopher J.},
-  title =        {Strata: A Cross Media File System},
-  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
-  year =         2017,
-  pages =        {460--477}
-}
-
-@InProceedings{kadekodi19:splitfs,
-  author =       {Kadekodi, Rohan and Lee, Se Kwon and Kashyap, Sanidhya
-                  and Kim, Taesoo and Kolli, Aasheesh and Chidambaram, Vijay},
-  title =        {{SplitFS}: Reducing Software Overhead in File Systems
-                  for Persistent Memory},
-  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
-  year =         2019,
-  pages =        {494--508}
-}
-
-@InProceedings{konishi06:nilfs,
-  author =       {Konishi, Ryusuke and Amagai, Yoshiji and Sato, Koji and
-                  Hifumi, Hisashi and Kihara, Seiji and Moriai, Satoshi},
-  title =        {The Linux Implementation of a Log-Structured File System},
-  booktitle =    {ACM SIGOPS Operating Systems Review},
-  year =         2006,
-  volume =       40,
-  number =       3,
-  pages =        {102--107}
-}
-
-@InProceedings{rodeh13:btrfs,
-  author =       {Rodeh, Ohad and Bacik, Josef and Mason, Chris},
-  title =        {{BTRFS}: The {Linux} {B-Tree} Filesystem},
-  booktitle =    {ACM Transactions on Storage (TOS)},
-  year =         2013,
-  volume =       9,
-  number =       3,
-  pages =        {1--32}
-}
-
-@InProceedings{gao20:erofs,
-  author =       {Gao, Xiang and Dong, Mingkai and Miao, Shanpei and Du, Duo
-                  and Chen, Haibo},
-  title =        {{EROFS}: A Compression-friendly Readonly File System for
-                  Resource-scarce Devices},
-  booktitle =    {USENIX Annual Technical Conference (ATC)},
-  year =         2020,
-  pages =        {357--371}
-}
-
-@InProceedings{merkel14:docker,
-  author =       {Merkel, Dirk},
-  title =        {{Docker}: Lightweight {Linux} Containers for Consistent
-                  Development and Deployment},
-  booktitle =    {Linux Journal},
-  year =         2014,
-  volume =       239,
-  pages =        {2}
-}
-
-@Article{cxl22:spec,
-  author =       {{CXL Consortium}},
-  title =        {{Compute Express Link (CXL)} Specification, Revision 3.0},
-  year =         2022
-}
-
-@InProceedings{barham03:xen,
-  author =       {Barham, Paul and Dragovic, Boris and Fraser, Keir and
-                  Hand, Steven and Harris, Tim and Ho, Alex and
-                  Neugebauer, Rolf and Pratt, Ian and Warfield, Andrew},
-  title =        {{Xen} and the Art of Virtualization},
-  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
-  year =         2003,
-  pages =        {164--177}
-}
-
-@InProceedings{nightingale06:specfs,
-  author =       {Nightingale, Edmund B. and Chen, Peter M. and Flinn, Jason},
-  title =        {Speculative Execution in a Distributed File System},
-  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
-  year =         2005,
-  pages =        {191--205}
-}
-
-@InProceedings{baumann09:multikernel,
-  author =       {Baumann, Andrew and Barham, Paul and Dagand, Pierre-{\'E}variste
-                  and Harris, Tim and Isaacs, Rebecca and Peter, Simon and
-                  Roscoe, Timothy and Sch{\"u}pbach, Adrian and Singhania, Akhilesh},
-  title =        {The Multikernel: A New {OS} Architecture for Scalable
-                  Multicore Systems},
-  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
-  year =         2009,
-  pages =        {29--44}
-}
-
-@InProceedings{vangoor17:overlayfs,
-  author =       {Van Goor, Aditya J. and Hofmann, Jana and Madhyastha, Harsha V.
-                  and Zadok, Erez},
-  title =        {To Fuse or Not to Fuse: Performance of User-Space File Systems},
-  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
-  year =         2017,
-  pages =        {59--72}
-}
-
-@InProceedings{yang20:cxlmem,
-  author =       {Yang, Juncheng and Yue, Yao and Rashmi, K. V.},
-  title =        {A Large Scale Analysis of Hundreds of In-memory Cache Clusters
-                  at Twitter},
-  booktitle =    {USENIX Symposium on Operating Systems Design and
-                  Implementation (OSDI)},
-  year =         2020,
-  pages =        {191--208}
-}
-
-@InProceedings{lee19:recipe,
-  author =       {Lee, Se Kwon and Mohan, Jayashree and Kashyap, Sanidhya and
-                  Kim, Taesoo and Chidambaram, Vijay},
-  title =        {{Recipe}: Converting Concurrent {DRAM} Indexes to
-                  Persistent-Memory Indexes},
-  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
-  year =         2019,
-  pages =        {462--477}
-}
-
-@InProceedings{chen15:dax,
-  author =       {Chen, Feng and Lee, Rubao and Zhang, Xiaodong},
-  title =        {Essential Roles of Exploiting Internal Parallelism of
-                  Flash Memory Based Solid State Drives in High-Speed
-                  Data Processing},
-  booktitle =    {IEEE International Symposium on High-Performance Computer Architecture (HPCA)},
-  year =         2015
-}
-
-@Misc{linuxdax,
-  author =       {{Linux Kernel Documentation}},
-  title =        {Direct Access for files ({DAX})},
-  howpublished = {\url{https://www.kernel.org/doc/Documentation/filesystems/dax.txt}}
-}
-
-@InProceedings{izraelevitz19:pmem,
-  author =       {Izraelevitz, Joseph and Yang, Jian and Zhang, Lu and
-                  Kim, Juno and Liu, Xiao and Memaripour, Amirsaman and
-                  Soh, Yun Joon and Wang, Zixuan and Xu, Yi and
-                  Doshi, Subramanya R. and Swanson, Steven},
-  title =        {Basic Performance Measurements of the {Intel Optane DC}
-                  Persistent Memory Module},
-  booktitle =    {arXiv:1903.05714},
-  year =         2019
-}
-
-@InProceedings{wei23:llmspec,
-  author =       {Wei, Jason and Wang, Xuezhi and Schuurmans, Dale and
-                  Bosma, Maarten and Chi, Ed and Le, Quoc and Zhou, Denny},
-  title =        {Chain-of-Thought Prompting Elicits Reasoning in Large Language Models},
-  booktitle =    {Advances in Neural Information Processing Systems (NeurIPS)},
-  year =         2022
-}
-
-@InProceedings{lee15:famfs,
-  author =       {Lee, Changwoo and Sim, Taehyoung and Cho, Hyunhee and others},
-  title =        {Understanding the Performance of Fabric-Attached Memory Filesystems},
-  booktitle =    {Workshop on Interactions of NVM/FLASH with Operating Systems and Workloads (INFLOW)},
-  year =         2015
-}
-
-@Article{intel17:pmem,
-  author =       {{Intel Corporation}},
-  title =        {{Intel Optane DC} Persistent Memory},
-  year =         2019,
-  journal =      {Intel Technology Brief}
-}
-
-@InProceedings{lee11:f2fs,
-  author =       {Lee, Changman and Sim, Dongho and Hwang, Jooyoung and Cho, Sangyeun},
-  title =        {{F2FS}: A New File System for Flash Storage},
-  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
-  year =         2015,
-  pages =        {273--286}
-}
-
-@InProceedings{harter11:aufs,
-  author =       {Harter, Tyler and Salmon, Brandon and Liu, Rose and Arpaci-Dusseau,
-                  Andrea C. and Arpaci-Dusseau, Remzi H.},
-  title =        {Slacker: Fast Distribution with Lazy {Docker} Containers},
-  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
-  year =         2016,
-  pages =        {181--195}
-}
-
-@InProceedings{zhan21:snapfs,
-  author =       {Zhan, Kai and Li, Yifan and Xia, Wenguang},
-  title =        {Fast Snapshots and Recovery for Transactional File Systems},
-  booktitle =    {USENIX Annual Technical Conference (ATC)},
-  year =         2021
-}
-\end{filecontents}
 
 %-------------------------------------------------------------------------------
 \begin{document}
@@ -1241,8 +1016,119 @@ tool, \texttt{daxfs-branch} management tool, and
 \texttt{daxfs-inspect} debugging tool.
 
 %-------------------------------------------------------------------------------
-\bibliographystyle{plain}
-\bibliography{\jobname}
+\begin{thebibliography}{18}
+
+\bibitem{baumann09:multikernel}
+A.~Baumann, P.~Barham, P.-E. Dagand, T.~Harris, R.~Isaacs, S.~Peter,
+  T.~Roscoe, A.~Sch\"upbach, and A.~Singhania.
+\newblock The multikernel: A new {OS} architecture for scalable multicore
+  systems.
+\newblock In {\em ACM Symposium on Operating Systems Principles (SOSP)}, pages
+  29--44, 2009.
+
+\bibitem{cxl22:spec}
+{CXL Consortium}.
+\newblock {Compute Express Link (CXL)} specification, revision 3.0, 2022.
+
+\bibitem{dulloor14:pmfs}
+S.~R. Dulloor, S.~Kumar, A.~Keshavamurthy, P.~Lantz, D.~Reddy, R.~Sankaran,
+  and J.~Jackson.
+\newblock System software for persistent memory.
+\newblock In {\em ACM European Conference on Computer Systems (EuroSys)}, pages
+  1--15, 2014.
+
+\bibitem{gao20:erofs}
+X.~Gao, M.~Dong, S.~Miao, D.~Du, and H.~Chen.
+\newblock {EROFS}: A compression-friendly readonly file system for
+  resource-scarce devices.
+\newblock In {\em USENIX Annual Technical Conference (ATC)}, pages 357--371,
+  2020.
+
+\bibitem{harter11:aufs}
+T.~Harter, B.~Salmon, R.~Liu, A.~C. Arpaci-Dusseau, and R.~H.
+  Arpaci-Dusseau.
+\newblock Slacker: Fast distribution with lazy {Docker} containers.
+\newblock In {\em USENIX Conference on File and Storage Technologies (FAST)},
+  pages 181--195, 2016.
+
+\bibitem{intel17:pmem}
+{Intel Corporation}.
+\newblock {Intel Optane DC} persistent memory.
+\newblock {\em Intel Technology Brief}, 2019.
+
+\bibitem{izraelevitz19:pmem}
+J.~Izraelevitz, J.~Yang, L.~Zhang, J.~Kim, X.~Liu, A.~Memaripour, Y.~J. Soh,
+  Z.~Wang, Y.~Xu, S.~R. Doshi, and S.~Swanson.
+\newblock Basic performance measurements of the {Intel Optane DC} persistent
+  memory module.
+\newblock {\em arXiv:1903.05714}, 2019.
+
+\bibitem{kadekodi19:splitfs}
+R.~Kadekodi, S.~K. Lee, S.~Kashyap, T.~Kim, A.~Kolli, and V.~Chidambaram.
+\newblock {SplitFS}: Reducing software overhead in file systems for persistent
+  memory.
+\newblock In {\em ACM Symposium on Operating Systems Principles (SOSP)}, pages
+  494--508, 2019.
+
+\bibitem{konishi06:nilfs}
+R.~Konishi, Y.~Amagai, K.~Sato, H.~Hifumi, S.~Kihara, and S.~Moriai.
+\newblock The {Linux} implementation of a log-structured file system.
+\newblock {\em ACM SIGOPS Operating Systems Review}, 40(3):102--107, 2006.
+
+\bibitem{kwon17:strata}
+Y.~Kwon, H.~Yu, S.~Peter, C.~J. Turner, and C.~J. Rossbach.
+\newblock Strata: A cross media file system.
+\newblock In {\em ACM Symposium on Operating Systems Principles (SOSP)}, pages
+  460--477, 2017.
+
+\bibitem{lee11:f2fs}
+C.~Lee, D.~Sim, J.~Hwang, and S.~Cho.
+\newblock {F2FS}: A new file system for flash storage.
+\newblock In {\em USENIX Conference on File and Storage Technologies (FAST)},
+  pages 273--286, 2015.
+
+\bibitem{linuxdax}
+{Linux Kernel Documentation}.
+\newblock Direct access for files ({DAX}).
+\newblock \url{https://www.kernel.org/doc/Documentation/filesystems/dax.txt}.
+
+\bibitem{merkel14:docker}
+D.~Merkel.
+\newblock {Docker}: Lightweight {Linux} containers for consistent development
+  and deployment.
+\newblock {\em Linux Journal}, 239:2, 2014.
+
+\bibitem{nightingale06:specfs}
+E.~B. Nightingale, P.~M. Chen, and J.~Flinn.
+\newblock Speculative execution in a distributed file system.
+\newblock In {\em ACM Symposium on Operating Systems Principles (SOSP)}, pages
+  191--205, 2005.
+
+\bibitem{rodeh13:btrfs}
+O.~Rodeh, J.~Bacik, and C.~Mason.
+\newblock {BTRFS}: The {Linux} {B-Tree} filesystem.
+\newblock {\em ACM Transactions on Storage (TOS)}, 9(3):1--32, 2013.
+
+\bibitem{vangoor17:overlayfs}
+A.~J. Van~Goor, J.~Hofmann, H.~V. Madhyastha, and E.~Zadok.
+\newblock To fuse or not to fuse: Performance of user-space file systems.
+\newblock In {\em USENIX Conference on File and Storage Technologies (FAST)},
+  pages 59--72, 2017.
+
+\bibitem{wei23:llmspec}
+J.~Wei, X.~Wang, D.~Schuurmans, M.~Bosma, E.~Chi, Q.~Le, and D.~Zhou.
+\newblock Chain-of-thought prompting elicits reasoning in large language models.
+\newblock In {\em Advances in Neural Information Processing Systems (NeurIPS)},
+  2022.
+
+\bibitem{xu16:nova}
+J.~Xu and S.~Swanson.
+\newblock {NOVA}: A log-structured file system for hybrid volatile/non-volatile
+  main memories.
+\newblock In {\em USENIX Conference on File and Storage Technologies (FAST)},
+  pages 323--338, 2016.
+
+\end{thebibliography}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \end{document}
