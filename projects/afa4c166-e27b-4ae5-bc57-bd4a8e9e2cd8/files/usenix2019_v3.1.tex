@@ -9,8 +9,6 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,fit,calc,patterns,decorations.pathreplacing}
 \usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{textcomp}
 \usepackage{booktabs}
 \usepackage{listings}
 \usepackage{xspace}
@@ -27,6 +25,9 @@
 \newcommand{\daxfs}{\textsc{DaxFS}\xspace}
 \newcommand{\ie}{\textit{i.e.}\xspace}
 \newcommand{\eg}{\textit{e.g.}\xspace}
+% Symbols drawn via TikZ to avoid loading cmsy10.pfb (corrupted in some environments)
+\newcommand{\cmark}{\tikz[baseline=-0.6ex,scale=0.7]\draw[thick,green!60!black](0,0)--(0.12,0.12)--(0.32,-0.12);}
+\newcommand{\xmark}{\tikz[baseline=-0.4ex,scale=0.7]{\draw[thick,red!70!black](0,0)--(0.22,0.22);\draw[thick,red!70!black](0,0.22)--(0.22,0);}}
 
 %-------------------------------------------------------------------------------
 \begin{document}
@@ -152,21 +153,21 @@ most relevant to our target workloads.
 
 \begin{table*}[t]
 \centering
-\small
-\begin{tabular}{@{}lccccccc@{}}
+\footnotesize
+\begin{tabular}{@{}l@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{}}
 \toprule
 \textbf{Property} & \textbf{\daxfs} & \textbf{NOVA} & \textbf{PMFS} & \textbf{Btrfs} & \textbf{NILFS2} & \textbf{EROFS} & \textbf{OverlayFS} \\
 \midrule
-Zero-copy DAX reads        & \checkmark & Partial & Partial & \texttimes & \texttimes & \texttimes & \texttimes \\
-No page cache overhead     & \checkmark & Partial & Partial & \texttimes & \texttimes & \texttimes & \texttimes \\
-Hierarchical branching     & \checkmark & \texttimes & \texttimes & Limited & \texttimes & \texttimes & 1-level \\
-N-level speculation        & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes \\
-Atomic commit/abort        & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & N/A & \texttimes \\
-Sibling invalidation       & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & N/A & \texttimes \\
-Cross-kernel coordination  & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes \\
-No distributed locking     & \checkmark & N/A & N/A & \texttimes & N/A & N/A & N/A \\
-Flat validatable format    & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & \checkmark & N/A \\
-$O(\text{deltas})$ merge   & \checkmark & N/A & N/A & \texttimes & N/A & N/A & N/A \\
+Zero-copy DAX reads        & \cmark & Partial & Partial & \xmark & \xmark & \xmark & \xmark \\
+No page cache overhead     & \cmark & Partial & Partial & \xmark & \xmark & \xmark & \xmark \\
+Hierarchical branching     & \cmark & \xmark & \xmark & Limited & \xmark & \xmark & 1-level \\
+N-level speculation        & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark & \xmark \\
+Atomic commit/abort        & \cmark & \xmark & \xmark & \xmark & \xmark & N/A & \xmark \\
+Sibling invalidation       & \cmark & \xmark & \xmark & \xmark & \xmark & N/A & \xmark \\
+Cross-kernel coordination  & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark & \xmark \\
+No distributed locking     & \cmark & N/A & N/A & \xmark & N/A & N/A & N/A \\
+Flat validatable format    & \cmark & \xmark & \xmark & \xmark & \xmark & \cmark & N/A \\
+$O(\text{deltas})$ merge   & \cmark & N/A & N/A & \xmark & N/A & N/A & N/A \\
 \bottomrule
 \end{tabular}
 \caption{Feature comparison of \daxfs with existing filesystems.
@@ -663,16 +664,16 @@ traditional COW subvolumes in detail.
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{@{}lp{2.3cm}p{2.5cm}@{}}
+\begin{tabular}{@{}lll@{}}
 \toprule
-\textbf{Aspect} & \textbf{COW Subvolumes (Btrfs)} & \textbf{Delta-Log (\daxfs)} \\
+\textbf{Aspect} & \textbf{COW (Btrfs)} & \textbf{Delta-Log (\daxfs)} \\
 \midrule
-Create & Snapshot tree metadata & Allocate log region \\
-Commit & Diff trees + apply; $O(\text{tree})$ & Append deltas to parent; $O(\text{deltas})$ \\
-Abort & Delete snapshot & Discard log region \\
-N-level & Independent trees; complex merge & Chain merges naturally to root \\
-Sibling invalidation & Not supported & Atomic; all siblings aborted \\
-Cross-kernel & Not supported & Via \texttt{cmpxchg} on DAX memory \\
+Create & Snapshot tree & Allocate log \\
+Commit & Diff + apply, $O(\text{tree})$ & Append, $O(\text{deltas})$ \\
+Abort & Delete snapshot & Discard log \\
+N-level & Complex merge & Chain to root \\
+Invalidate & Not supported & Atomic \\
+Cross-kernel & Not supported & \texttt{cmpxchg} on DAX \\
 \bottomrule
 \end{tabular}
 \caption{Delta-log branches vs.\ COW subvolumes.  The delta-log
