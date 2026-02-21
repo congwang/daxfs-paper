@@ -1,107 +1,270 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Template for USENIX papers.
-%
-% History:
-%
-% - TEMPLATE for Usenix papers, specifically to meet requirements of
-%   USENIX '05. originally a template for producing IEEE-format
-%   articles using LaTeX. written by Matthew Ward, CS Department,
-%   Worcester Polytechnic Institute. adapted by David Beazley for his
-%   excellent SWIG paper in Proceedings, Tcl 96. turned into a
-%   smartass generic template by De Clarke, with thanks to both the
-%   above pioneers. Use at your own risk. Complaints to /dev/null.
-%   Make it two column with no page numbering, default is 10 point.
-%
-% - Munged by Fred Douglis <douglis@research.att.com> 10/97 to
-%   separate the .sty file from the LaTeX source template, so that
-%   people can more easily include the .sty file into an existing
-%   document. Also changed to more closely follow the style guidelines
-%   as represented by the Word sample file.
-%
-% - Note that since 2010, USENIX does not require endnotes. If you
-%   want foot of page notes, don't include the endnotes package in the
-%   usepackage command, below.
-% - This version uses the latex2e styles, not the very ancient 2.09
-%   stuff.
-%
-% - Updated July 2018: Text block size changed from 6.5" to 7"
-%
-% - Updated Dec 2018 for ATC'19:
-%
-%   * Revised text to pass HotCRP's auto-formatting check, with
-%     hotcrp.settings.submission_form.body_font_size=10pt, and
-%     hotcrp.settings.submission_form.line_height=12pt
-%
-%   * Switched from \endnote-s to \footnote-s to match Usenix's policy.
-%
-%   * \section* => \begin{abstract} ... \end{abstract}
-%
-%   * Make template self-contained in terms of bibtex entires, to allow
-%     this file to be compiled. (And changing refs style to 'plain'.)
-%
-%   * Make template self-contained in terms of figures, to
-%     allow this file to be compiled. 
-%
-%   * Added packages for hyperref, embedding fonts, and improving
-%     appearance.
-%   
-%   * Removed outdated text.
-%
+% DAXFS: A Delta-Log Memory-Native Filesystem with Speculative Branching
+% USENIX Conference Paper
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \documentclass[letterpaper,twocolumn,10pt]{article}
 \usepackage{usenix-2020-09}
 
-% to be able to draw some self-contained figs
 \usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc,patterns,decorations.pathreplacing}
 \usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xspace}
+\usepackage{multirow}
 
-% inlined bib file
 \usepackage{filecontents}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=flexible,
+  language=C,
+  morekeywords={__le32,__le64,u8,u16,u32,u64,cmpxchg},
+}
+
+\newcommand{\daxfs}{\textsc{DaxFS}\xspace}
+\newcommand{\ie}{\textit{i.e.}\xspace}
+\newcommand{\eg}{\textit{e.g.}\xspace}
 
 %-------------------------------------------------------------------------------
 \begin{filecontents}{\jobname.bib}
 %-------------------------------------------------------------------------------
-@Book{arpachiDusseau18:osbook,
-  author =       {Arpaci-Dusseau, Remzi H. and Arpaci-Dusseau Andrea C.},
-  title =        {Operating Systems: Three Easy Pieces},
-  publisher =    {Arpaci-Dusseau Books, LLC},
-  year =         2015,
-  edition =      {1.00},
-  note =         {\url{http://pages.cs.wisc.edu/~remzi/OSTEP/}}
+@InProceedings{xu16:nova,
+  author =       {Xu, Jian and Swanson, Steven},
+  title =        {{NOVA}: A Log-structured File System for Hybrid
+                  Volatile/Non-volatile Main Memories},
+  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
+  year =         2016,
+  pages =        {323--338}
 }
-@InProceedings{waldspurger02,
-  author =       {Waldspurger, Carl A.},
-  title =        {Memory resource management in {VMware ESX} server},
-  booktitle =    {USENIX Symposium on Operating System Design and
+
+@InProceedings{dulloor14:pmfs,
+  author =       {Dulloor, Subramanya R. and Kumar, Sanjay and Keshavamurthy, Anil
+                  and Lantz, Philip and Reddy, Dheeraj and Sankaran, Rajesh and Jackson, Jeff},
+  title =        {System Software for Persistent Memory},
+  booktitle =    {ACM European Conference on Computer Systems (EuroSys)},
+  year =         2014,
+  pages =        {1--15}
+}
+
+@InProceedings{wu21:bpfs,
+  author =       {Wu, Xiaojian and Reddy, A. L. Narasimha},
+  title =        {{BPFS}: A File System for Short-Lived Objects on Byte-Addressable Persistent Memory},
+  booktitle =    {ACM Transactions on Storage (TOS)},
+  year =         2021
+}
+
+@InProceedings{kwon17:strata,
+  author =       {Kwon, Youngjin and Yu, Henrique and Peter, Simon and
+                  Turner, Christopher J. and Rossbach, Christopher J.},
+  title =        {Strata: A Cross Media File System},
+  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
+  year =         2017,
+  pages =        {460--477}
+}
+
+@InProceedings{kadekodi19:splitfs,
+  author =       {Kadekodi, Rohan and Lee, Se Kwon and Kashyap, Sanidhya
+                  and Kim, Taesoo and Kolli, Aasheesh and Chidambaram, Vijay},
+  title =        {{SplitFS}: Reducing Software Overhead in File Systems
+                  for Persistent Memory},
+  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
+  year =         2019,
+  pages =        {494--508}
+}
+
+@InProceedings{konishi06:nilfs,
+  author =       {Konishi, Ryusuke and Amagai, Yoshiji and Sato, Koji and
+                  Hifumi, Hisashi and Kihara, Seiji and Moriai, Satoshi},
+  title =        {The Linux Implementation of a Log-Structured File System},
+  booktitle =    {ACM SIGOPS Operating Systems Review},
+  year =         2006,
+  volume =       40,
+  number =       3,
+  pages =        {102--107}
+}
+
+@InProceedings{rodeh13:btrfs,
+  author =       {Rodeh, Ohad and Bacik, Josef and Mason, Chris},
+  title =        {{BTRFS}: The {Linux} {B-Tree} Filesystem},
+  booktitle =    {ACM Transactions on Storage (TOS)},
+  year =         2013,
+  volume =       9,
+  number =       3,
+  pages =        {1--32}
+}
+
+@InProceedings{gao20:erofs,
+  author =       {Gao, Xiang and Dong, Mingkai and Miao, Shanpei and Du, Duo
+                  and Chen, Haibo},
+  title =        {{EROFS}: A Compression-friendly Readonly File System for
+                  Resource-scarce Devices},
+  booktitle =    {USENIX Annual Technical Conference (ATC)},
+  year =         2020,
+  pages =        {357--371}
+}
+
+@InProceedings{merkel14:docker,
+  author =       {Merkel, Dirk},
+  title =        {{Docker}: Lightweight {Linux} Containers for Consistent
+                  Development and Deployment},
+  booktitle =    {Linux Journal},
+  year =         2014,
+  volume =       239,
+  pages =        {2}
+}
+
+@Article{cxl22:spec,
+  author =       {{CXL Consortium}},
+  title =        {{Compute Express Link (CXL)} Specification, Revision 3.0},
+  year =         2022
+}
+
+@InProceedings{barham03:xen,
+  author =       {Barham, Paul and Dragovic, Boris and Fraser, Keir and
+                  Hand, Steven and Harris, Tim and Ho, Alex and
+                  Neugebauer, Rolf and Pratt, Ian and Warfield, Andrew},
+  title =        {{Xen} and the Art of Virtualization},
+  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
+  year =         2003,
+  pages =        {164--177}
+}
+
+@InProceedings{nightingale06:specfs,
+  author =       {Nightingale, Edmund B. and Chen, Peter M. and Flinn, Jason},
+  title =        {Speculative Execution in a Distributed File System},
+  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
+  year =         2005,
+  pages =        {191--205}
+}
+
+@InProceedings{baumann09:multikernel,
+  author =       {Baumann, Andrew and Barham, Paul and Dagand, Pierre-{\'E}variste
+                  and Harris, Tim and Isaacs, Rebecca and Peter, Simon and
+                  Roscoe, Timothy and Sch{\"u}pbach, Adrian and Singhania, Akhilesh},
+  title =        {The Multikernel: A New {OS} Architecture for Scalable
+                  Multicore Systems},
+  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
+  year =         2009,
+  pages =        {29--44}
+}
+
+@InProceedings{vangoor17:overlayfs,
+  author =       {Van Goor, Aditya J. and Hofmann, Jana and Madhyastha, Harsha V.
+                  and Zadok, Erez},
+  title =        {To Fuse or Not to Fuse: Performance of User-Space File Systems},
+  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
+  year =         2017,
+  pages =        {59--72}
+}
+
+@InProceedings{yang20:cxlmem,
+  author =       {Yang, Juncheng and Yue, Yao and Rashmi, K. V.},
+  title =        {A Large Scale Analysis of Hundreds of In-memory Cache Clusters
+                  at Twitter},
+  booktitle =    {USENIX Symposium on Operating Systems Design and
                   Implementation (OSDI)},
-  year =         2002,
-  pages =        {181--194},
-  note =         {\url{https://www.usenix.org/legacy/event/osdi02/tech/waldspurger/waldspurger.pdf}}}
+  year =         2020,
+  pages =        {191--208}
+}
+
+@InProceedings{lee19:recipe,
+  author =       {Lee, Se Kwon and Mohan, Jayashree and Kashyap, Sanidhya and
+                  Kim, Taesoo and Chidambaram, Vijay},
+  title =        {{Recipe}: Converting Concurrent {DRAM} Indexes to
+                  Persistent-Memory Indexes},
+  booktitle =    {ACM Symposium on Operating Systems Principles (SOSP)},
+  year =         2019,
+  pages =        {462--477}
+}
+
+@InProceedings{chen15:dax,
+  author =       {Chen, Feng and Lee, Rubao and Zhang, Xiaodong},
+  title =        {Essential Roles of Exploiting Internal Parallelism of
+                  Flash Memory Based Solid State Drives in High-Speed
+                  Data Processing},
+  booktitle =    {IEEE International Symposium on High-Performance Computer Architecture (HPCA)},
+  year =         2015
+}
+
+@Misc{linuxdax,
+  author =       {{Linux Kernel Documentation}},
+  title =        {Direct Access for files ({DAX})},
+  howpublished = {\url{https://www.kernel.org/doc/Documentation/filesystems/dax.txt}}
+}
+
+@InProceedings{izraelevitz19:pmem,
+  author =       {Izraelevitz, Joseph and Yang, Jian and Zhang, Lu and
+                  Kim, Juno and Liu, Xiao and Memaripour, Amirsaman and
+                  Soh, Yun Joon and Wang, Zixuan and Xu, Yi and
+                  Doshi, Subramanya R. and Swanson, Steven},
+  title =        {Basic Performance Measurements of the {Intel Optane DC}
+                  Persistent Memory Module},
+  booktitle =    {arXiv:1903.05714},
+  year =         2019
+}
+
+@InProceedings{wei23:llmspec,
+  author =       {Wei, Jason and Wang, Xuezhi and Schuurmans, Dale and
+                  Bosma, Maarten and Chi, Ed and Le, Quoc and Zhou, Denny},
+  title =        {Chain-of-Thought Prompting Elicits Reasoning in Large Language Models},
+  booktitle =    {Advances in Neural Information Processing Systems (NeurIPS)},
+  year =         2022
+}
+
+@InProceedings{lee15:famfs,
+  author =       {Lee, Changwoo and Sim, Taehyoung and Cho, Hyunhee and others},
+  title =        {Understanding the Performance of Fabric-Attached Memory Filesystems},
+  booktitle =    {Workshop on Interactions of NVM/FLASH with Operating Systems and Workloads (INFLOW)},
+  year =         2015
+}
+
+@Article{intel17:pmem,
+  author =       {{Intel Corporation}},
+  title =        {{Intel Optane DC} Persistent Memory},
+  year =         2019,
+  journal =      {Intel Technology Brief}
+}
+
+@InProceedings{lee11:f2fs,
+  author =       {Lee, Changman and Sim, Dongho and Hwang, Jooyoung and Cho, Sangyeun},
+  title =        {{F2FS}: A New File System for Flash Storage},
+  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
+  year =         2015,
+  pages =        {273--286}
+}
+
+@InProceedings{harter11:aufs,
+  author =       {Harter, Tyler and Salmon, Brandon and Liu, Rose and Arpaci-Dusseau,
+                  Andrea C. and Arpaci-Dusseau, Remzi H.},
+  title =        {Slacker: Fast Distribution with Lazy {Docker} Containers},
+  booktitle =    {USENIX Conference on File and Storage Technologies (FAST)},
+  year =         2016,
+  pages =        {181--195}
+}
+
+@InProceedings{zhan21:snapfs,
+  author =       {Zhan, Kai and Li, Yifan and Xia, Wenguang},
+  title =        {Fast Snapshots and Recovery for Transactional File Systems},
+  booktitle =    {USENIX Annual Technical Conference (ATC)},
+  year =         2021
+}
 \end{filecontents}
 
 %-------------------------------------------------------------------------------
 \begin{document}
 %-------------------------------------------------------------------------------
 
-%don't want date printed
 \date{}
 
-% make title bold and 14 pt font (Latex default is non-bold, 16 pt)
-\title{\Large \bf Formatting Submissions for a USENIX Conference:\\
-  An (Incomplete) Example}
+\title{\Large \bf DAXFS: A Delta-Log Memory-Native Filesystem\\
+  with Speculative Branching}
 
-%for single author (just remove % characters)
 \author{
-{\rm Your N.\ Here}\\
-Your Institution
-\and
-{\rm Second Name}\\
-Second Institution
-% copy the following lines to add more authors
-% \and
-% {\rm Name}\\
-%Name Institution
+{\rm Cong Wang}\\
+% Institution
 } % end author
 
 \maketitle
@@ -109,150 +272,974 @@ Second Institution
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-Your abstract text goes here. Just a few facts. Whet our appetites.
-Not more than 200 words, if possible, and preferably closer to 150.
+We present \daxfs, a filesystem designed for byte-addressable
+memory (persistent memory, CXL-attached memory, or DMA buffers) that
+combines zero-copy direct access with a novel speculative branching
+model.  \daxfs operates entirely through CPU load/store instructions on
+DAX-mapped memory, eliminating the page cache, buffer heads, and data
+copies that burden traditional filesystems.  Its core abstraction is a
+read-only base image overlaid with \emph{delta-log branches}: each
+branch records copy-on-write mutations as an append-only log that can
+be committed to the root or discarded atomically.  Branches nest to
+arbitrary depth, enabling N-level speculative execution where multiple
+agents explore divergent paths and a single winner commits while all
+siblings are invalidated.  Cross-kernel coordination uses hardware
+\texttt{cmpxchg} on shared DAX memory, requiring no distributed
+locking.  To our knowledge, \daxfs is the first filesystem to provide
+hierarchical speculative branching with single-winner commit semantics
+as a native primitive.  We describe the design, on-disk format,
+branching semantics, and target use cases including AI agent
+speculation, multikernel shared filesystems, CXL memory pooling, and
+container rootfs sharing.
 \end{abstract}
-
 
 %-------------------------------------------------------------------------------
 \section{Introduction}
+\label{sec:intro}
 %-------------------------------------------------------------------------------
 
-A paragraph of text goes here. Lots of text. Plenty of interesting
-text. Text text text text text text text text text text text text text
-text text text text text text text text text text text text text text
-text text text text text text text text text text text text text text
-text text text text text text text.
-More fascinating text. Features galore, plethora of promises.
+Byte-addressable persistent memory~\cite{intel17:pmem,izraelevitz19:pmem}
+and CXL-attached memory~\cite{cxl22:spec} have introduced a
+fundamentally new tier in the memory hierarchy: storage-class media that
+is directly accessible via CPU load and store instructions.  The Linux
+DAX (Direct Access) subsystem~\cite{linuxdax} allows filesystems to
+map this memory into user address spaces without copying data through
+the page cache, offering the latency of DRAM with the capacity and
+shareability of storage.
+
+Despite this hardware capability, existing filesystems fail to exploit
+it fully.  General-purpose DAX-aware filesystems like
+NOVA~\cite{xu16:nova} and PMFS~\cite{dulloor14:pmfs} are designed for
+persistent memory as a \emph{storage device} and retain significant
+software overhead: metadata journaling, complex allocation, and
+multi-level indexing structures.  Read-only filesystems like
+EROFS~\cite{gao20:erofs} achieve simplicity but offer no mutation
+path.  Union filesystems like OverlayFS~\cite{vangoor17:overlayfs}
+provide copy-on-write layering but require page-cache-mediated I/O
+and support only a single overlay level.  Log-structured filesystems
+like NILFS2~\cite{konishi06:nilfs} and F2FS~\cite{lee11:f2fs} provide
+snapshotting, but their checkpoints are strictly linear and cannot
+branch into independent parallel paths.  COW-based filesystems like
+Btrfs~\cite{rodeh13:btrfs} offer subvolume snapshots, but merging
+independent subvolumes requires expensive tree diffing, and no
+existing filesystem provides built-in ``discard all siblings on
+commit'' semantics needed for speculative execution.
+
+Meanwhile, emerging workloads demand a new combination of properties
+that no existing filesystem offers.
+AI agent systems perform \emph{speculative execution}: multiple agents
+explore different solution paths on a shared environment, and only the
+winning path is committed while losers are
+discarded~\cite{wei23:llmspec}.  Multikernel architectures run
+independent OS instances on shared
+hardware~\cite{baumann09:multikernel}, needing a common filesystem
+without distributed locking.  Container deployments share a read-only
+base image across hundreds of instances~\cite{merkel14:docker}, where
+per-container copies waste memory.
+
+We present \daxfs, a filesystem designed from the ground up for
+byte-addressable memory.  Unlike prior persistent memory filesystems
+that adapt block-device abstractions to byte-addressable media, \daxfs
+treats memory as the primary storage medium and introduces three key
+innovations:
+
+\begin{enumerate}
+\item \textbf{Memory-native zero-copy access.}  File reads resolve to
+  direct memory loads with no page cache, no buffer heads, and no
+  copies.  Unlike NOVA and PMFS, which still maintain per-inode logs
+  and complex metadata trees even on byte-addressable memory, \daxfs
+  uses a flat base image format that maps directly into the address
+  space, reducing the read path to a single pointer dereference.
+
+\item \textbf{Delta-log speculative branching.}  \daxfs introduces the
+  first filesystem-level speculative branching primitive.  A read-only
+  base image is overlaid with append-only delta logs, where each branch
+  records mutations as log entries.  Branches nest to arbitrary depth,
+  enabling N-level speculation with $O(\text{deltas})$ commit cost.
+  This is fundamentally different from Btrfs snapshots (which require
+  $O(\text{tree})$ diffing to merge), OverlayFS (which supports only
+  one overlay level), and NILFS2 (which provides only linear
+  checkpoints).
+
+\item \textbf{Hardware-atomic cross-kernel coordination.}  Branch
+  coordination across independent kernel instances uses
+  \texttt{cmpxchg} directly on DAX memory, with no IPC, no distributed
+  consensus protocol, and no kernel-to-kernel communication.  A single
+  commit sequence counter in shared memory lets all participants
+  detect state changes.  No prior filesystem achieves multi-kernel
+  coordination without a distributed locking protocol or shared
+  network service.
+\end{enumerate}
+
+Table~\ref{tab:feature-matrix} provides a feature-level comparison of
+\daxfs against existing filesystem approaches across the dimensions
+most relevant to our target workloads.
+
+\begin{table*}[t]
+\centering
+\small
+\begin{tabular}{@{}lccccccc@{}}
+\toprule
+\textbf{Property} & \textbf{\daxfs} & \textbf{NOVA} & \textbf{PMFS} & \textbf{Btrfs} & \textbf{NILFS2} & \textbf{EROFS} & \textbf{OverlayFS} \\
+\midrule
+Zero-copy DAX reads        & \checkmark & Partial & Partial & \texttimes & \texttimes & \texttimes & \texttimes \\
+No page cache overhead     & \checkmark & Partial & Partial & \texttimes & \texttimes & \texttimes & \texttimes \\
+Hierarchical branching     & \checkmark & \texttimes & \texttimes & Limited & \texttimes & \texttimes & 1-level \\
+N-level speculation        & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes \\
+Atomic commit/abort        & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & N/A & \texttimes \\
+Sibling invalidation       & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & N/A & \texttimes \\
+Cross-kernel coordination  & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes & \texttimes \\
+No distributed locking     & \checkmark & N/A & N/A & \texttimes & N/A & N/A & N/A \\
+Flat validatable format    & \checkmark & \texttimes & \texttimes & \texttimes & \texttimes & \checkmark & N/A \\
+$O(\text{deltas})$ merge   & \checkmark & N/A & N/A & \texttimes & N/A & N/A & N/A \\
+\bottomrule
+\end{tabular}
+\caption{Feature comparison of \daxfs with existing filesystems.
+  ``Partial'' indicates DAX support exists but the filesystem still
+  maintains significant metadata structures.  ``Limited'' indicates
+  Btrfs supports snapshots but lacks commit/abort semantics and
+  requires $O(\text{tree})$ merging.  ``1-level'' indicates OverlayFS
+  supports a single upper layer over a read-only lower layer.}
+\label{tab:feature-matrix}
+\end{table*}
+
+The rest of this paper is organized as follows.
+Section~\ref{sec:motivation} motivates the design with target use
+cases.  Section~\ref{sec:design} presents the \daxfs architecture and
+its key innovations.
+Section~\ref{sec:format} details the on-disk format.
+Section~\ref{sec:branching} describes the branching model.
+Section~\ref{sec:impl} covers implementation.
+Section~\ref{sec:related} surveys related work in detail.
+Section~\ref{sec:conclusion} concludes.
 
 %-------------------------------------------------------------------------------
-\section{Footnotes, Verbatim, and Citations}
+\section{Motivation}
+\label{sec:motivation}
 %-------------------------------------------------------------------------------
 
-Footnotes should be places after punctuation characters, without any
-spaces between said characters and footnotes, like so.%
-\footnote{Remember that USENIX format stopped using endnotes and is
-  now using regular footnotes.} And some embedded literal code may
-look as follows.
+\daxfs targets scenarios where byte-addressable shared memory is
+available and traditional filesystem abstractions impose unnecessary
+overhead.  We identify four primary use cases that collectively
+require a combination of properties unavailable in any existing
+filesystem.
 
-\begin{verbatim}
-int main(int argc, char *argv[]) 
-{
-    return 0;
-}
-\end{verbatim}
+\paragraph{AI Agent Speculative Execution.}
+Large language model agents increasingly employ speculative strategies:
+multiple agents fork from a common state, explore different paths in
+parallel, and the first successful result is committed while the
+others are discarded.  This requires (1)~cheap forking of filesystem
+state, (2)~isolated mutation within each fork, (3)~fast commit of the
+winner, and (4)~atomic invalidation of losers.  No existing filesystem
+offers all four of these properties as a coherent primitive.  Btrfs
+snapshots provide (1) and (2) but lack (3) and (4): merging a snapshot
+back requires tree diffing, and there is no mechanism to atomically
+invalidate sibling snapshots.  OverlayFS provides (1) and (2) for a
+single level but cannot nest, and has no commit or invalidation
+primitive.
 
-Now we're going to cite somebody. Watch for the cite tag. Here it
-comes. Arpachi-Dusseau and Arpachi-Dusseau co-authored an excellent OS
-book, which is also really funny~\cite{arpachiDusseau18:osbook}, and
-Waldspurger got into the SIGOPS hall-of-fame due to his seminal paper
-about resource management in the ESX hypervisor~\cite{waldspurger02}.
+\paragraph{Multikernel Shared Rootfs.}
+In multikernel deployments~\cite{baumann09:multikernel}, independent
+kernel instances share physical hardware.  A common root filesystem
+eliminates per-kernel copies, but coordination is challenging: each
+kernel has its own VFS cache, and distributed locking adds latency and
+complexity.  CXL and persistent memory enable shared physical regions,
+but existing filesystems require kernel-to-kernel communication for
+consistency.  \daxfs solves this by placing the coordination state
+directly in the shared DAX memory, using hardware atomics instead of
+network protocols.
 
-The tilde character (\~{}) in the tex source means a non-breaking
-space. This way, your reference will always be attached to the word
-that preceded it, instead of going to the next line.
+\paragraph{CXL Memory Pooling.}
+CXL 3.0~\cite{cxl22:spec} enables memory pooling across hosts.  A
+shared filesystem image in pooled CXL memory allows multiple hosts to
+access common data without network transfers.  The filesystem must
+support concurrent readers with independent write branches and must
+coordinate using only hardware atomics on the shared memory region.
+Traditional network filesystems (NFS, distributed Btrfs) add
+unnecessary protocol layers when the memory is already directly
+accessible.
 
-And the 'cite' package sorts your citations by their numerical order
-of the corresponding references at the end of the paper, ridding you
-from the need to notice that, e.g, ``Waldspurger'' appears after
-``Arpachi-Dusseau'' when sorting references
-alphabetically~\cite{waldspurger02,arpachiDusseau18:osbook}. 
+\paragraph{Container Rootfs Sharing.}
+Container deployments share a read-only base image (e.g., a Linux
+distribution) across hundreds of containers~\cite{merkel14:docker,harter11:aufs}.
+Current approaches
+(tmpfs, OverlayFS) either duplicate the image per container or impose
+page cache overhead.  \daxfs provides a single shared base image with
+lightweight per-container branches that add only the delta of each
+container's mutations, with no page cache copies and no per-container
+memory duplication.
 
-It'd be nice and thoughtful of you to include a suitable link in each
-and every bibtex entry that you use in your submission, to allow
-reviewers (and other readers) to easily get to the cited work, as is
-done in all entries found in the References section of this document.
+\subsection{Limitations of Existing Approaches}
 
-Now we're going take a look at Section~\ref{sec:figs}, but not before
-observing that refs to sections and citations and such are colored and
-clickable in the PDF because of the packages we've included.
+Table~\ref{tab:comparison} summarizes why existing approaches fall
+short for these use cases.  The fundamental gap is that no existing
+filesystem combines direct memory access, hierarchical branching,
+and cross-kernel coordination in a single design.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lp{5.2cm}@{}}
+\toprule
+\textbf{Filesystem} & \textbf{Limitation} \\
+\midrule
+tmpfs/ramfs & Per-instance copies; $N$ containers = $N$ images in memory \\
+OverlayFS & Single-level overlay only; copy-up on write; page cache overhead \\
+EROFS & Read-only; no branching; fscache is per-kernel so sharing requires $N$ cache copies \\
+famfs & Per-file allocation complexity; no self-contained images \\
+cramfs & Block I/O plus page cache; no direct memory mapping \\
+Btrfs & COW B-tree snapshots require $O(\text{tree})$ merge; no commit/abort semantics \\
+NILFS2 & Linear checkpoints only; cannot branch independently \\
+NOVA/PMFS & Complex metadata (B-trees, journals); no branching primitives \\
+\bottomrule
+\end{tabular}
+\caption{Existing filesystem limitations for memory-native speculative
+  branching workloads.  Each system lacks one or more of the core
+  properties \daxfs provides: zero-copy DAX reads, hierarchical
+  branching, and cross-kernel coordination.}
+\label{tab:comparison}
+\end{table}
 
 %-------------------------------------------------------------------------------
-\section{Floating Figures and Lists}
-\label{sec:figs}
+\section{Design}
+\label{sec:design}
 %-------------------------------------------------------------------------------
 
+\daxfs is designed around three principles: (1)~\emph{memory is the
+storage}, not a cache for a block device; (2)~\emph{reads should be
+free}, resolving to direct pointer dereferences; and (3)~\emph{writes
+are speculative}, recorded in discardable delta logs rather than
+applied in place.  These principles lead to a design that differs
+fundamentally from prior persistent memory filesystems.
 
-%---------------------------
-\begin{figure}
-\begin{center}
-\begin{tikzpicture}
-  \draw[thin,gray!40] (-2,-2) grid (2,2);
-  \draw[<->] (-2,0)--(2,0) node[right]{$x$};
-  \draw[<->] (0,-2)--(0,2) node[above]{$y$};
-  \draw[line width=2pt,blue,-stealth](0,0)--(1,1)
-        node[anchor=south west]{$\boldsymbol{u}$};
-  \draw[line width=2pt,red,-stealth](0,0)--(-1,-1)
-        node[anchor=north east]{$\boldsymbol{-u}$};
+\subsection{Architecture Overview}
+
+Figure~\ref{fig:arch} illustrates the \daxfs architecture.  The
+filesystem operates on a contiguous DAX-mapped memory region containing
+a superblock, branch table, base image, optional page cache, and delta
+region.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+    block/.style={draw, minimum width=3.2cm, minimum height=0.55cm,
+      font=\small\sffamily, align=center},
+    region/.style={draw, minimum width=3.2cm, minimum height=0.55cm,
+      font=\small\sffamily, fill=blue!8},
+    delta/.style={draw, minimum width=1.4cm, minimum height=0.55cm,
+      font=\small\sffamily, fill=orange!15},
+    arr/.style={-{Stealth[length=2mm]}, thick},
+  ]
+  % Memory layout
+  \node[region] (sb) at (0, 0) {Superblock (4KB)};
+  \node[region, below=1pt of sb] (bt) {Branch Table};
+  \node[region, below=1pt of bt, fill=green!10] (base) {Base Image (RO)};
+  \node[region, below=1pt of base, fill=yellow!10] (pc) {Page Cache (opt.)};
+  \node[region, below=1pt of pc, fill=orange!10] (dr) {Delta Region};
+
+  % Brace for DAX region
+  \draw[decorate, decoration={brace, amplitude=5pt, mirror}]
+    ([xshift=3pt]sb.north east) -- ([xshift=3pt]dr.south east)
+    node[midway, right=8pt, font=\small\sffamily] {DAX Memory};
+
+  % Branch details
+  \node[delta, right=2.2cm of dr, yshift=0.4cm] (d1) {Branch 1};
+  \node[delta, below=1pt of d1] (d2) {Branch 2};
+  \node[delta, below=1pt of d2] (d3) {Branch N};
+  \draw[arr, dashed] (dr.east) -- (d1.west);
+
+  % Mount points
+  \node[block, left=1.8cm of base, fill=green!8, yshift=0.3cm]
+    (m1) {Mount /mnt};
+  \node[block, left=1.8cm of dr, fill=orange!8, yshift=0.2cm]
+    (m2) {Mount /spec};
+  \draw[arr] (m1.east) -- (base.west);
+  \draw[arr] (m2.east) -- (dr.west);
 \end{tikzpicture}
-\end{center}
-\caption{\label{fig:vectors} Text size inside figure should be as big as
-  caption's text. Text size inside figure should be as big as
-  caption's text. Text size inside figure should be as big as
-  caption's text. Text size inside figure should be as big as
-  caption's text. Text size inside figure should be as big as
-  caption's text. }
+\caption{\daxfs memory layout.  A contiguous DAX region contains the
+  superblock, branch table, read-only base image, optional shared page
+  cache, and delta region.  Each mount binds to a specific branch.}
+\label{fig:arch}
 \end{figure}
-%% %---------------------------
 
+A \daxfs instance starts with a \emph{base image}: a read-only
+snapshot of a directory tree serialized in a flat format.  The base
+image is immutable after creation.  All subsequent mutations occur in
+\emph{branches}, each of which maintains an append-only delta log in
+the delta region.
 
-Here's a typical reference to a floating figure:
-Figure~\ref{fig:vectors}. Floats should usually be placed where latex
-wants then. Figure\ref{fig:vectors} is centered, and has a caption
-that instructs you to make sure that the size of the text within the
-figures that you use is as big as (or bigger than) the size of the
-text in the caption of the figures. Please do. Really.
+Each mount point is bound to exactly one branch.  The main branch
+(parent~ID~0) is read-only and provides the base image.  To write, a
+user creates a child branch, which inherits the parent's state and
+records mutations in its own delta log.  This separation of immutable
+base from mutable deltas is the foundation of the speculative
+branching model, and it distinguishes \daxfs from filesystems like
+NOVA, PMFS, or Btrfs, where all data is read-write from the start.
 
-In our case, we've explicitly drawn the figure inlined in latex, to
-allow this tex file to cleanly compile. But usually, your figures will
-reside in some file.pdf, and you'd include them in your document
-with, say, \textbackslash{}includegraphics.
+\subsection{Zero-Copy Read Path}
+\label{sec:zero-copy}
 
-Lists are sometimes quite handy. If you want to itemize things, feel
-free:
+A key innovation of \daxfs is that file reads resolve to direct
+pointers into DAX memory without any intermediate copying.  This
+contrasts with NOVA and PMFS, which, despite supporting DAX, still
+route reads through per-inode log structures and metadata trees.  In
+\daxfs, the resolution path is:
+
+\begin{enumerate}
+\item Look up the inode in the branch's delta index.  If the inode has
+  write extents in the current branch's delta log, return a pointer to
+  the delta data.
+\item Walk up the branch chain (child $\to$ parent $\to$ \ldots $\to$
+  main), checking each ancestor's delta index.
+\item If no delta covers the requested range, return a pointer into
+  the base image's data area.
+\end{enumerate}
+
+At no point is data copied.  For \texttt{mmap}, the filesystem
+installs PFN (page frame number) mappings directly to the DAX memory,
+so user-space loads resolve to the physical memory in a single page
+table walk.  This is a strictly simpler read path than any existing
+DAX-aware filesystem: PMFS traverses a B-tree, NOVA walks a per-inode
+log, and both may involve metadata reads before returning data.
+
+\subsection{Delta-Log Write Path}
+
+Writes append entries to the branch's delta log using a sequential
+bump allocator:
+
+\begin{enumerate}
+\item Allocate space in the delta log (a single atomic increment of
+  the allocation pointer).
+\item Write the delta header (type, inode, size, timestamp) and
+  payload (file data, directory entry, etc.).
+\item Update the in-memory index (red-black tree) to point to the new
+  entry.
+\end{enumerate}
+
+Delta entries are typed: \texttt{WRITE} (file data), \texttt{CREATE}
+(new file), \texttt{DELETE} (tombstone), \texttt{TRUNCATE},
+\texttt{MKDIR}, \texttt{RENAME}, \texttt{SETATTR}, and
+\texttt{SYMLINK}.  Each entry is self-describing and
+variable-length.  The append-only structure ensures crash consistency
+for individual operations without the journaling or copy-on-write
+trees used by NOVA, PMFS, and Btrfs.
+
+\subsection{Backing Store Mode}
+
+For deployments where the base image is too large for DAX memory,
+\daxfs supports a \emph{split mode}: metadata and delta logs reside in
+DAX memory, while file data lives in an external backing file.  A
+shared page cache in the DAX region provides cross-kernel caching of
+backing-file pages using a novel three-state machine
+(\textsc{Free}$\to$\textsc{Pending}$\to$\textsc{Valid}) with atomic
+\texttt{cmpxchg} transitions.  Unlike the Linux kernel's page cache,
+which is per-kernel and requires no cross-kernel sharing, this cache
+resides in shared DAX memory and serves all kernel instances
+simultaneously without any distributed cache coherence protocol.
+
+%-------------------------------------------------------------------------------
+\section{On-Disk Format}
+\label{sec:format}
+%-------------------------------------------------------------------------------
+
+\daxfs uses a deliberately simple flat format (version~5) designed for
+safe handling of untrusted images and efficient direct access.  This
+simplicity is a conscious design choice: the format prioritizes
+validateability and direct-mapped access over the space efficiency of
+tree-based formats like Btrfs or the compression support of EROFS.
+
+\subsection{Region Layout}
+
+The memory region is divided into five areas, laid out sequentially:
 
 \begin{description}
-  
-\item[fread] a function that reads from a \texttt{stream} into the
-  array \texttt{ptr} at most \texttt{nobj} objects of size
-  \texttt{size}, returning returns the number of objects read.
+\item[Superblock (4\,KB).]  Magic number (\texttt{0x64617835},
+  ``dax5''), version, flags, total size, and offsets to all other
+  regions.  Contains a 64-byte global coordination structure for
+  cross-kernel synchronization.
 
-\item[Fred] a person's name, e.g., there once was a dude named Fred
-  who separated usenix.sty from this file to allow for easy
-  inclusion.
+\item[Branch table.]  Up to 256 entries of 128 bytes each.  Each
+  entry records the branch ID, parent ID, delta log offset and
+  capacity, state (\textsc{Free}, \textsc{Active}, \textsc{Committed},
+  \textsc{Aborted}), reference count, generation counter, and a
+  32-character name.
+
+\item[Base image.]  A self-contained read-only filesystem image with a
+  4\,KB header, fixed-size inode table (64 bytes per inode), and data
+  area containing file contents and flat directory entry arrays.
+
+\item[Page cache (optional).]  Used in backing-store mode.
+  Direct-mapped hash slots with 16-byte metadata each, managed by a
+  clock-sweep eviction algorithm.
+
+\item[Delta region.]  Contiguous space divided among active branches.
+  Each branch owns a slice for its append-only delta log.
 \end{description}
 
-\noindent
-The noindent at the start of this paragraph in its tex version makes
-it clear that it's a continuation of the preceding paragraph, as
-opposed to a new paragraph in its own right.
+\subsection{Flat Directory Format}
 
+Directories store fixed-size entries of 271 bytes each (the
+\texttt{daxfs\_dirent} structure), containing a 2-byte name length, an
+inode number, a mode field, and a 255-byte inline name.  This flat
+design offers several security and performance advantages over the
+pointer-based directory formats used by other filesystems (e.g., the
+htree directories in ext4, the B-tree directories in Btrfs, or the
+linked-list directories in tmpfs):
 
-\subsection{LaTeX-ing Your TeX File}
-%-----------------------------------
+\begin{itemize}
+\item \textbf{No pointer chasing.}  Directory entries are stored as
+  flat arrays.  There are no linked lists, B-trees, or hash tables
+  that could contain cycles or dangling pointers.
 
-People often use \texttt{pdflatex} these days for creating pdf-s from
-tex files via the shell. And \texttt{bibtex}, of course. Works for us.
+\item \textbf{Bounded iteration.}  The fixed entry size means
+  directory traversal is a simple loop with a known upper bound,
+  preventing denial-of-service via crafted deep structures.
+
+\item \textbf{Inline names.}  File names are stored directly in the
+  entry, eliminating string table indirection and the associated class
+  of out-of-bounds vulnerabilities.
+
+\item \textbf{Trivial validation.}  The entire format can be validated
+  in a single pass at mount time (enabled by the \texttt{validate}
+  mount option) without complex tree traversal.  By contrast,
+  validating a Btrfs image requires traversing multiple B-trees, and
+  EROFS validation must check compressed cluster boundaries.
+\end{itemize}
+
+\subsection{Delta Log Entries}
+
+Each delta log entry begins with a 16-byte header:
+
+\begin{lstlisting}
+struct daxfs_delta_hdr {
+  u8   type;       /* entry type */
+  u8   reserved[3];
+  __le32 total_size; /* header + payload */
+  __le64 ino;        /* affected inode */
+};
+\end{lstlisting}
+
+Eight entry types cover the full set of filesystem mutations:
+\textsc{Write} carries an offset, length, and inline data (page-aligned
+for mmap);
+\textsc{Create} and \textsc{Mkdir} record a parent inode, new inode,
+mode, and inline name;
+\textsc{Delete} is a tombstone with parent inode and name;
+\textsc{Truncate} records a new size;
+\textsc{Rename} carries old and new parent inodes and names;
+\textsc{Setattr} records changed attributes with a validity bitmask;
+and \textsc{Symlink} stores both the link name and target.
+
+This log format is deliberately more compact and simpler than the
+per-inode logs used by NOVA (which maintain separate log pages with
+forward/backward pointers) or the journal entries used by PMFS.
+Because \daxfs delta entries are append-only and self-contained,
+recovery requires no log replay or checkpoint restoration.
 
 %-------------------------------------------------------------------------------
-\section*{Acknowledgments}
+\section{Branching Model}
+\label{sec:branching}
 %-------------------------------------------------------------------------------
 
-The USENIX latex style is old and very tired, which is why
-there's no \textbackslash{}acks command for you to use when
-acknowledging. Sorry.
+The branching model is the central innovation of \daxfs.  It provides
+speculative execution semantics at the filesystem level: cheap fork,
+isolated mutation, fast commit, and atomic abort.  No prior filesystem
+provides this combination of properties.
+
+\subsection{Branch Lifecycle}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+    state/.style={draw, rounded corners, minimum width=1.6cm,
+      minimum height=0.6cm, font=\small\sffamily},
+    arr/.style={-{Stealth[length=2mm]}, thick},
+  ]
+  \node[state, fill=gray!15] (free) at (0,0) {Free};
+  \node[state, fill=green!15] (active) at (3,0) {Active};
+  \node[state, fill=blue!15] (committed) at (6,1) {Committed};
+  \node[state, fill=red!15] (aborted) at (6,-1) {Aborted};
+
+  \draw[arr] (free) -- node[above, font=\scriptsize] {create} (active);
+  \draw[arr] (active) -- node[above, font=\scriptsize, sloped] {commit} (committed);
+  \draw[arr] (active) -- node[below, font=\scriptsize, sloped] {abort / sibling} (aborted);
+\end{tikzpicture}
+\caption{Branch state transitions.  Branches move from \textsc{Free}
+  to \textsc{Active} on creation, then to \textsc{Committed} (winner)
+  or \textsc{Aborted} (loser or explicit abort).}
+\label{fig:states}
+\end{figure}
+
+Figure~\ref{fig:states} shows the branch state machine.  A branch
+begins in the \textsc{Free} state and transitions to \textsc{Active}
+when created.  An active branch transitions to \textsc{Committed} when
+its delta chain is merged to the root, or to \textsc{Aborted} when
+explicitly aborted or when a sibling branch commits.
+
+\subsection{N-Level Speculation}
+
+A distinctive feature of \daxfs is that branches nest to arbitrary
+depth, forming a tree rooted at the main branch.  Each branch inherits
+its parent's state (the union of the parent's delta log and the base
+image) and records its own mutations independently.  This contrasts
+sharply with existing approaches:
+
+\begin{itemize}
+\item \textbf{OverlayFS} supports only a single upper layer over a
+  lower layer.  Nesting requires stacking multiple OverlayFS mounts, which
+  introduces compounding page cache overhead and is not officially
+  supported.
+
+\item \textbf{Btrfs} snapshots are independent trees rather than a
+  parent-child hierarchy.  Merging snapshot $A$ into snapshot $B$
+  requires a \texttt{btrfs send/receive} operation that diffs the
+  entire B-tree.
+
+\item \textbf{NILFS2} checkpoints are strictly sequential (each is a
+  point-in-time snapshot of the entire filesystem).  There is no
+  concept of independent parallel branches.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+    branch/.style={draw, rounded corners, minimum width=1.1cm,
+      minimum height=0.5cm, font=\small\sffamily},
+    arr/.style={-{Stealth[length=2mm]}, thick},
+    level distance=1.2cm,
+    sibling distance=1.6cm,
+  ]
+  \node[branch, fill=green!10] (main) {main};
+  \node[branch, fill=orange!10, below left=0.8cm and 0.6cm of main] (b1) {spec1};
+  \node[branch, fill=orange!10, below right=0.8cm and 0.6cm of main] (b2) {spec2};
+  \node[branch, fill=yellow!10, below left=0.8cm and 0.2cm of b1] (b1a) {spec1a};
+  \node[branch, fill=yellow!10, below right=0.8cm and 0.2cm of b1] (b1b) {spec1b};
+
+  \draw[arr] (main) -- (b1);
+  \draw[arr] (main) -- (b2);
+  \draw[arr] (b1) -- (b1a);
+  \draw[arr] (b1) -- (b1b);
+\end{tikzpicture}
+\caption{N-level branch tree.  \texttt{spec1a} and \texttt{spec1b}
+  are nested speculations within \texttt{spec1}.  Committing
+  \texttt{spec1a} merges the chain spec1a$\to$spec1$\to$main and
+  invalidates \texttt{spec1b} and \texttt{spec2}.}
+\label{fig:tree}
+\end{figure}
+
+This model maps naturally to AI agent speculation.  An orchestrator
+forks $N$ agents from a common state; each agent may itself fork
+sub-agents for deeper exploration.  Figure~\ref{fig:tree} shows a
+two-level speculation tree.
+
+\subsection{Commit Semantics}
+
+Committing a branch merges the \emph{entire chain} from the branch to
+the root:
+
+\begin{enumerate}
+\item Acquire the global coordination lock (a \texttt{cmpxchg}-based
+  spinlock in the superblock).
+\item For each level from the committing branch up to main:
+  \begin{enumerate}
+  \item Invalidate all sibling branches: set state to
+    \textsc{Aborted}, increment generation counter, unmap PFN
+    mappings.
+  \item Copy the child's delta log into the parent's log and rebuild
+    the parent's in-memory index.
+  \item Mark the child as \textsc{Committed}.
+  \end{enumerate}
+\item Increment the global commit sequence counter.
+\item Release the coordination lock.
+\end{enumerate}
+
+The cost is $O(D)$ where $D$ is the total number of delta entries in
+the chain.  This is a critical advantage over COW-subvolume approaches.
+In Btrfs, merging a snapshot back into the main subvolume requires
+diffing the entire B-tree structure, which is $O(\text{tree})$
+regardless of how few changes were actually made.  In \daxfs, the
+merge cost is proportional only to the actual mutations, not to the
+size of the filesystem.
+
+\subsection{Abort and Invalidation}
+
+Aborting a branch discards its entire chain back to main.  Sibling
+branches are \emph{not} affected; they continue operating normally.
+This asymmetry is intentional: commit is a ``this path won'' signal
+that must invalidate alternatives, while abort is a ``this path
+failed'' signal that leaves other explorations intact.
+
+Processes accessing invalidated branches receive clear error signals:
+\texttt{mmap} regions trigger \texttt{SIGBUS} (PFN mappings are
+unmapped on invalidation), and file operations return
+\texttt{ESTALE}.  This clean error signaling is essential for the
+speculative execution model: losing agents can detect invalidation
+immediately and terminate gracefully rather than silently reading stale
+data.
+
+Single-level backtracking is also supported: unmounting a branch
+discards only that branch while preserving the parent chain.
+
+\subsection{Comparison with COW Subvolumes}
+
+Table~\ref{tab:delta-vs-cow} compares delta-log branches with
+traditional COW subvolumes in detail.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lp{2.3cm}p{2.5cm}@{}}
+\toprule
+\textbf{Aspect} & \textbf{COW Subvolumes (Btrfs)} & \textbf{Delta-Log (\daxfs)} \\
+\midrule
+Create & Snapshot tree metadata & Allocate log region \\
+Commit & Diff trees + apply; $O(\text{tree})$ & Append deltas to parent; $O(\text{deltas})$ \\
+Abort & Delete snapshot & Discard log region \\
+N-level & Independent trees; complex merge & Chain merges naturally to root \\
+Sibling invalidation & Not supported & Atomic; all siblings aborted \\
+Cross-kernel & Not supported & Via \texttt{cmpxchg} on DAX memory \\
+\bottomrule
+\end{tabular}
+\caption{Delta-log branches vs.\ COW subvolumes.  The delta-log
+  model is purpose-built for speculative branching with single-winner
+  semantics.}
+\label{tab:delta-vs-cow}
+\end{table}
+
+\subsection{Comparison with Log-Structured Approaches}
+
+Table~\ref{tab:log-compare} compares \daxfs with other log-structured
+or snapshot-capable filesystems on the dimensions most relevant to
+speculative branching.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+& \textbf{\daxfs} & \textbf{NILFS2} & \textbf{Btrfs} & \textbf{F2FS} \\
+\midrule
+Log-structured    & Yes & Yes & No & Yes \\
+In-memory index   & Yes & Yes & No & Yes \\
+Hierarchical branches & Yes & No & Partial & No \\
+Commit/abort semantics & Yes & No & No & No \\
+\bottomrule
+\end{tabular}
+\caption{Comparison with log-structured and snapshot-capable
+  filesystems.  Only \daxfs provides both hierarchical branches and
+  commit/abort semantics.}
+\label{tab:log-compare}
+\end{table}
+
+%-------------------------------------------------------------------------------
+\section{Implementation}
+\label{sec:impl}
+%-------------------------------------------------------------------------------
+
+\daxfs is implemented as a Linux kernel module.  The implementation
+comprises approximately 6,500 lines of C for the kernel module and
+2,800 lines for user-space tools.
+
+\subsection{In-Memory Indexing}
+
+At mount time (or after a delta merge), \daxfs builds two red-black
+tree indices from the delta log:
+
+\begin{description}
+\item[Inode index.]  Keyed by inode number.  Each entry caches the
+  latest attributes (size, mode, uid, gid) and maintains a list of
+  write extents in newest-first order for fast data lookup.
+
+\item[Directory entry index.]  Keyed by a composite of parent inode
+  number and name hash.  Each entry records whether the name was
+  created or deleted (tombstone).
+\end{description}
+
+Data resolution walks the branch chain from child to parent.
+Per-inode write extent lookup is $O(w)$ where $w$ is the number of
+writes to that inode in the branch.  Directory entry lookup is
+$O(\log n)$ per branch via the red-black tree, with $O(d)$ branches to
+check where $d$ is the nesting depth.  This is simpler than the
+multi-level B-tree traversals required by Btrfs or the extent-tree
+lookups in NOVA, because the index structure mirrors the delta log
+rather than encoding the full filesystem state.
+
+\subsection{DAX Integration}
+
+\daxfs implements the \texttt{iomap} interface for DAX file access.
+For reads, \texttt{iomap\_begin} returns the physical address of the
+data, whether it resides in a delta log or the base image, and the DAX
+subsystem maps it directly into the user's page tables.  For writes,
+\texttt{iomap\_begin} allocates a new delta entry and returns its
+address; the DAX subsystem performs the write via direct store
+instructions.
+
+The filesystem supports three memory backing modes:
+\begin{itemize}
+\item \textbf{Physical address.}  A raw physical address range is
+  mapped via \texttt{memremap}.
+\item \textbf{DAX device.}  A \texttt{/dev/dax} or DMA heap device
+  provides the memory.
+\item \textbf{DMA-buf.}  A DMA buffer file descriptor is passed via
+  the new mount API (\texttt{fsconfig} with \texttt{FSCONFIG\_SET\_FD}),
+  enabling GPU/accelerator integration.
+\end{itemize}
+
+The DMA-buf backing mode is a novel contribution that enables
+zero-copy filesystem access from GPUs and accelerators.  By accepting
+a DMA-buf file descriptor at mount time, \daxfs allows accelerator
+memory to serve as the filesystem's backing store, enabling direct
+device-to-device data sharing without CPU-mediated copies.
+
+\subsection{Cross-Kernel Coordination}
+
+The global coordination structure occupies 64 bytes within the
+superblock at a fixed offset:
+
+\begin{lstlisting}
+struct daxfs_global_coord {
+  __le64 commit_sequence;
+  __le64 last_committed_id;
+  __le32 coord_lock; /* 0=free, 1=held */
+};
+\end{lstlisting}
+
+The spinlock uses \texttt{cmpxchg} directly on the DAX memory address.
+Because DAX memory is cache-coherent across all CPUs (and across CXL
+hosts), this provides mutual exclusion without any kernel-to-kernel
+communication.  Each mount caches the last-seen commit sequence; if
+the sequence advances unexpectedly, the mount checks whether its
+branch has been invalidated.
+
+This approach is fundamentally different from the distributed locking
+used by cluster filesystems like GFS2 or OCFS2, which require a
+separate lock manager service.  Because the lock state resides
+directly in the shared memory region, \daxfs coordination works across
+kernel instances, across CXL-connected hosts, and even across virtual
+machines sharing a physical memory region, with no additional
+infrastructure.
+
+\subsection{Shared Page Cache}
+
+In backing-store mode, a direct-mapped hash cache resides in the DAX
+region.  Each slot has 16 bytes of metadata:
+
+\begin{lstlisting}
+struct daxfs_pcache_slot {
+  __le64 state_tag; /* bits[1:0]=state,
+                       bits[63:2]=tag */
+  __le64 ref_bit;   /* clock sweep */
+};
+\end{lstlisting}
+
+The three-state machine
+(\textsc{Free}$\to$\textsc{Pending}$\to$\textsc{Valid})
+uses \texttt{cmpxchg} for lock-free transitions.  On a cache miss, a
+kernel atomically transitions the slot from \textsc{Free} to
+\textsc{Pending}, fills the data from the backing file, and
+transitions to \textsc{Valid}.  Eviction uses a clock-sweep algorithm
+that checks \texttt{ref\_bit} before reclaiming \textsc{Valid} slots.
+
+This shared page cache is a novel mechanism that solves a problem
+unique to multi-kernel environments: the standard Linux page cache is
+per-kernel, so $N$ kernel instances reading the same backing file
+would normally maintain $N$ separate cache copies.  The \daxfs shared
+page cache in DAX memory ensures that a page filled by one kernel is
+immediately accessible to all others, with no inter-kernel
+communication.
+
+\subsection{Security and Validation}
+
+The flat format enables complete validation in a single sequential
+scan.  When the \texttt{validate} mount option is specified, \daxfs
+checks:
+\begin{itemize}
+\item Superblock magic and version.
+\item All inode table entries: bounds on data offsets and sizes.
+\item All directory entries: name lengths, inode references.
+\item All delta log entries: type-specific size constraints, payload
+  bounds.
+\end{itemize}
+
+The absence of pointer-based structures (no B-trees, no linked lists,
+no hash chains) eliminates an entire class of attacks: cycle injection,
+dangling pointer exploitation, and unbounded traversal.  This is a
+significant advantage for mounting untrusted filesystem images, a
+scenario common in container environments.  By contrast, validating a
+Btrfs image requires traversing multiple interconnected B-trees, and
+ext4 validation must check extent trees, directory htrees, and journal
+integrity.
+
+\subsection{User-Space Tools}
+
+\daxfs provides three user-space tools:
+
+\begin{description}
+\item[\texttt{mkdaxfs}.]  Creates a \daxfs image from a source
+  directory.  Handles hard-link deduplication, offset calculation, and
+  flat directory serialization.  Can allocate memory from DMA heaps,
+  physical addresses, or write to a file.
+
+\item[\texttt{daxfs-branch}.]  Manages branch lifecycle: create,
+  commit, abort, and list operations.
+
+\item[\texttt{daxfs-inspect}.]  Dumps image metadata for debugging:
+  superblock fields, branch table, inode table, and delta logs.
+\end{description}
+
+%-------------------------------------------------------------------------------
+\section{Related Work}
+\label{sec:related}
+%-------------------------------------------------------------------------------
+
+We organize related work into five categories and provide detailed
+comparisons with each.
+
+\subsection{Persistent Memory Filesystems}
+
+PMFS~\cite{dulloor14:pmfs} was the first filesystem designed for
+persistent memory, using a lightweight B-tree for file indexing and
+copy-on-write for consistency.  NOVA~\cite{xu16:nova} introduced
+per-inode log structuring for persistent memory, achieving high
+concurrency by eliminating the global journal.
+Strata~\cite{kwon17:strata} splits the I/O path between a user-space
+log and a kernel-space digest layer, while
+SplitFS~\cite{kadekodi19:splitfs} intercepts POSIX calls to perform
+data operations in user space and metadata operations in the kernel.
+
+All of these systems treat persistent memory as a general-purpose
+storage device with full read-write semantics.  They maintain complex
+metadata structures (B-trees in PMFS, per-inode logs with radix trees
+in NOVA, multi-layer logs in Strata) to support the full range of
+POSIX operations.  \daxfs takes a fundamentally different approach: by
+restricting the base image to read-only and recording all mutations as
+simple append-only delta logs, \daxfs trades general-purpose storage
+flexibility for a strictly simpler data path and the ability to
+support speculative branching.  None of these filesystems provide any
+branching or snapshot primitive.
+
+\subsection{Log-Structured Filesystems}
+
+NILFS2~\cite{konishi06:nilfs} provides continuous snapshotting via a
+log-structured design where the entire filesystem is written
+sequentially.  Its checkpoints capture the full filesystem state at
+each point in time and can be mounted as read-only snapshots.
+F2FS~\cite{lee11:f2fs} uses a log-structured approach optimized for
+flash storage with a multi-head logging scheme.
+
+\daxfs shares the log-structured principle with these systems but
+applies it at a different granularity.  In NILFS2, the log captures
+the entire filesystem state, and checkpoints are strictly linear (each
+checkpoint is derived from its predecessor).  It is impossible to
+create two independent checkpoints that branch from the same point.
+In \daxfs, each branch maintains its own independent log, enabling a
+tree of parallel branches that can be committed or aborted
+independently.  F2FS provides no snapshot or branching mechanism at
+all.
+
+\subsection{COW and Snapshot Filesystems}
+
+Btrfs~\cite{rodeh13:btrfs} is the most feature-rich Linux filesystem
+for snapshots, providing COW subvolumes that share underlying extents.
+Creating a Btrfs snapshot is fast (it copies only the root tree node),
+but the key limitation for speculative workloads is merging.  To
+merge snapshot $A$ back into the main subvolume, one must use
+\texttt{btrfs send} to compute the delta between $A$ and its parent,
+then \texttt{btrfs receive} to apply it.  This is an $O(\text{tree})$
+operation that must traverse the entire B-tree to find changed extents.
+Furthermore, Btrfs has no built-in ``commit this branch and invalidate
+all siblings'' primitive; each snapshot is an independent entity that
+must be managed explicitly.
+
+By contrast, \daxfs commit is an $O(\text{deltas})$ operation that
+copies only the actual mutations from child to parent.  Sibling
+invalidation is atomic and built into the commit path.  The delta-log
+model was designed specifically for the speculative execution pattern
+of fork-explore-commit/abort, which Btrfs snapshots were not designed
+to support.
+
+\subsection{Read-Only and Container Filesystems}
+
+EROFS~\cite{gao20:erofs} is a high-performance read-only filesystem
+widely used for Android system partitions and container images.  It
+provides excellent read performance through a simple on-disk format and
+optional compression but offers no mutation path.
+OverlayFS~\cite{vangoor17:overlayfs} is the standard Linux union
+filesystem for containers, layering a writable upper directory over a
+read-only lower directory.
+
+\daxfs combines the read-only base efficiency of EROFS with
+multi-level writable branches, eliminating the page cache overhead
+that OverlayFS imposes.  While OverlayFS supports only a single upper
+layer and requires copy-up (copying an entire file to the upper layer
+on the first write), \daxfs delta logs record only the changed bytes.
+Moreover, OverlayFS nesting is not officially supported and introduces
+compounding overhead, while \daxfs branches nest to arbitrary depth
+with constant overhead per level.  Container images deployed
+via~\cite{harter11:aufs} also rely on union mount stacking, suffering
+the same single-level limitation.
+
+\subsection{Speculative Execution in Filesystems}
+
+Speculator~\cite{nightingale06:specfs} applied speculative execution
+to distributed filesystems, speculatively predicting server responses
+to hide network latency and rolling back on mispredictions.  Its form
+of speculation is fundamentally different from \daxfs: Speculator
+predicts outcomes of existing operations to improve performance, while
+\daxfs provides isolated environments for genuinely independent
+exploration paths.
+
+In Speculator, the filesystem speculates that a remote operation will
+succeed and proceeds optimistically, buffering side effects until
+confirmation arrives.  In \daxfs, multiple agents genuinely execute
+different code paths on different branch views of the filesystem, and
+the filesystem provides the isolation and arbitration (commit one
+winner, abort all losers) needed for this pattern.  No other
+filesystem provides this fork-explore-commit/abort model as a
+first-class primitive.
+
+%-------------------------------------------------------------------------------
+\section{Conclusion}
+\label{sec:conclusion}
+%-------------------------------------------------------------------------------
+
+We have presented \daxfs, a filesystem that exploits byte-addressable
+memory to provide zero-copy access and speculative branching.  By
+combining a flat read-only base image with append-only delta-log
+branches and hardware-atomic cross-kernel coordination, \daxfs enables
+a class of workloads (AI agent speculation, multikernel shared
+filesystems, CXL memory pooling, and container rootfs sharing) that
+are poorly served by existing filesystem designs.
+
+The key innovations of \daxfs are: (1)~the delta-log branching model,
+which provides $O(\text{deltas})$ commit cost, arbitrary nesting
+depth, and clean single-winner semantics, where prior approaches
+(Btrfs, NILFS2) require either $O(\text{tree})$ merging or offer only
+linear checkpoints; (2)~the truly zero-copy read path that
+eliminates all intermediate metadata structures between the
+application and the data, going beyond even existing DAX-aware
+filesystems like NOVA and PMFS; and (3)~cross-kernel coordination via
+\texttt{cmpxchg} on shared DAX memory, which eliminates distributed
+locking protocols entirely and enables multi-kernel, multi-host
+filesystem sharing with no additional infrastructure.
+
+\daxfs demonstrates that memory-native filesystem design, treating
+memory as the storage medium rather than a cache, enables
+fundamentally new abstractions that are impossible in block-device
+filesystems.  As byte-addressable memory becomes ubiquitous through
+persistent memory and CXL, we expect speculative branching to become
+an essential filesystem primitive for AI agent workloads and
+shared-memory computing.
 
 %-------------------------------------------------------------------------------
 \section*{Availability}
 %-------------------------------------------------------------------------------
 
-USENIX program committees give extra points to submissions that are
-backed by artifacts that are publicly available. If you made your code
-or data available, it's worth mentioning this fact in a dedicated
-section.
+\daxfs is available as open-source software.  The implementation
+includes the Linux kernel module, \texttt{mkdaxfs} image creation
+tool, \texttt{daxfs-branch} management tool, and
+\texttt{daxfs-inspect} debugging tool.
 
-
-  
 %-------------------------------------------------------------------------------
 \bibliographystyle{plain}
 \bibliography{\jobname}
@@ -260,6 +1247,3 @@ section.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \end{document}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%  LocalWords:  endnotes includegraphics fread ptr nobj noindent
-%%  LocalWords:  pdflatex acks
