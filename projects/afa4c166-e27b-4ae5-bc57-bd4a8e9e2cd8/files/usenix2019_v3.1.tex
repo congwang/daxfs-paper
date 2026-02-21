@@ -297,6 +297,7 @@ region.
 
 \begin{figure}[t]
 \centering
+\resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[
     block/.style={draw, minimum width=3.2cm, minimum height=0.55cm,
       font=\small\sffamily, align=center},
@@ -331,7 +332,8 @@ region.
     (m2) {Mount /spec};
   \draw[arr] (m1.east) -- (base.west);
   \draw[arr] (m2.east) -- (dr.west);
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{\daxfs memory layout.  A contiguous DAX region contains the
   superblock, branch table, read-only base image, optional shared page
   cache, and delta region.  Each mount binds to a specific branch.}
