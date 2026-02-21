@@ -21,12 +21,10 @@
 % which is in latex2e.
 
 \if@twocolumn\else\input twocolumn.sty\fi
-\usepackage{lmodern}   % Latin Modern: defines lmsy (working symbol font)
-\usepackage{mathptmx}  % times roman for text and most math
-% Redirect math symbol font from ztmcm (falls back to corrupted cmsy10.pfb)
-% to lmsy (Latin Modern Symbol, uses lmsy10.pfb which is intact)
-\DeclareSymbolFont{symbols}{OMS}{lmsy}{m}{n}
-\SetSymbolFont{symbols}{bold}{OMS}{lmsy}{b}{n}
+% Latin Modern fonts: modern CM replacement with intact .pfb files.
+% mathptmx (Times) removed due to corrupted utmb8a.pfb and cmsy10.pfb
+% in the TeXlyre build environment.
+\usepackage{lmodern}
 
 \usepackage[utf8]{inputenc}
 
