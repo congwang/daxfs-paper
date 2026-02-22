@@ -81,7 +81,7 @@ is directly accessible via CPU load and store instructions.  The Linux
 DAX (Direct Access) subsystem~\cite{linuxdax} allows filesystems to
 map this memory into user address spaces without copying data through
 the page cache, offering the latency of DRAM with the capacity and
-shareability of storage.
+sharing properties of storage.
 
 Despite this hardware capability, existing filesystems fail to exploit
 it fully.  General-purpose DAX-aware filesystems like
@@ -207,7 +207,7 @@ parallel, and the first successful result is committed while the
 others are discarded.  This requires (1)~cheap forking of filesystem
 state, (2)~isolated mutation within each fork, (3)~fast commit of the
 winner, and (4)~atomic invalidation of losers.  No existing filesystem
-offers all four of these properties as a coherent primitive.  Btrfs
+offers all four properties as a unified primitive.  Btrfs
 snapshots provide (1) and (2) but lack (3) and (4): merging a snapshot
 back requires tree diffing, and there is no mechanism to atomically
 invalidate sibling snapshots.  OverlayFS provides (1) and (2) for a
@@ -285,8 +285,8 @@ NOVA/PMFS & Complex metadata (B-trees, journals); no branching primitives \\
 storage}, not a cache for a block device; (2)~\emph{reads should be
 free}, resolving to direct pointer dereferences; and (3)~\emph{writes
 are speculative}, recorded in discardable delta logs rather than
-applied in place.  These principles lead to a design that differs
-fundamentally from prior persistent memory filesystems.
+applied in place.  These principles lead to a design that diverges
+significantly from prior persistent memory filesystems.
 
 \subsection{Architecture Overview}
 
@@ -357,11 +357,8 @@ NOVA, PMFS, or Btrfs, where all data is read-write from the start.
 \subsection{Zero-Copy Read Path}
 \label{sec:zero-copy}
 
-A key innovation of \daxfs is that file reads resolve to direct
-pointers into DAX memory without any intermediate copying.  This
-contrasts with NOVA and PMFS, which, despite supporting DAX, still
-route reads through per-inode log structures and metadata trees.  In
-\daxfs, the resolution path is:
+In \daxfs, file reads resolve to direct pointers into DAX memory
+without any intermediate copying.  The resolution path is:
 
 \begin{enumerate}
 \item Look up the inode in the branch's delta index.  If the inode has
@@ -376,9 +373,8 @@ route reads through per-inode log structures and metadata trees.  In
 At no point is data copied.  For \texttt{mmap}, the filesystem
 installs PFN (page frame number) mappings directly to the DAX memory,
 so user-space loads resolve to the physical memory in a single page
-table walk.  This is a strictly simpler read path than any existing
-DAX-aware filesystem: PMFS traverses a B-tree, NOVA walks a per-inode
-log, and both may involve metadata reads before returning data.
+table walk.  By contrast, PMFS traverses a B-tree and NOVA walks a
+per-inode log before returning data, even though both support DAX.
 
 \subsection{Delta-Log Write Path}
 
@@ -408,7 +404,7 @@ For deployments where the base image is too large for DAX memory,
 \daxfs supports a \emph{split mode}: metadata and delta logs reside in
 DAX memory, while file data lives in an external backing file.  A
 shared page cache in the DAX region provides cross-kernel caching of
-backing-file pages using a novel three-state machine
+backing-file pages using a three-state machine
 (\textsc{Free}$\to$\textsc{Pending}$\to$\textsc{Valid}) with atomic
 \texttt{cmpxchg} transitions.  Unlike the Linux kernel's page cache,
 which is per-kernel and requires no cross-kernel sharing, this cache
@@ -423,7 +419,7 @@ simultaneously without any distributed cache coherence protocol.
 \daxfs uses a deliberately simple flat format (version~5) designed for
 safe handling of untrusted images and efficient direct access.  This
 simplicity is a conscious design choice: the format prioritizes
-validateability and direct-mapped access over the space efficiency of
+ease of validation and direct-mapped access over the space efficiency of
 tree-based formats like Btrfs or the compression support of EROFS.
 
 \subsection{Region Layout}
@@ -560,21 +556,16 @@ A distinctive feature of \daxfs is that branches nest to arbitrary
 depth, forming a tree rooted at the main branch.  Each branch inherits
 its parent's state (the union of the parent's delta log and the base
 image) and records its own mutations independently.  This contrasts
-sharply with existing approaches:
+with existing approaches:
 
 \begin{itemize}
-\item \textbf{OverlayFS} supports only a single upper layer over a
-  lower layer.  Nesting requires stacking multiple OverlayFS mounts, which
-  introduces compounding page cache overhead and is not officially
-  supported.
+\item \textbf{OverlayFS} supports only a single upper layer;
+  nesting requires stacking mounts with compounding overhead.
 
-\item \textbf{Btrfs} snapshots are independent trees rather than a
-  parent-child hierarchy.  Merging snapshot $A$ into snapshot $B$
-  requires a \texttt{btrfs send/receive} operation that diffs the
-  entire B-tree.
+\item \textbf{Btrfs} snapshots are independent trees, not a
+  parent-child hierarchy; merging requires \texttt{btrfs send/receive}.
 
-\item \textbf{NILFS2} checkpoints are strictly sequential (each is a
-  point-in-time snapshot of the entire filesystem).  There is no
+\item \textbf{NILFS2} checkpoints are strictly sequential, with no
   concept of independent parallel branches.
 \end{itemize}
 
@@ -632,12 +623,10 @@ the root:
 \end{enumerate}
 
 The cost is $O(D)$ where $D$ is the total number of delta entries in
-the chain.  This is a critical advantage over COW-subvolume approaches.
-In Btrfs, merging a snapshot back into the main subvolume requires
-diffing the entire B-tree structure, which is $O(\text{tree})$
-regardless of how few changes were actually made.  In \daxfs, the
-merge cost is proportional only to the actual mutations, not to the
-size of the filesystem.
+the chain, proportional to the actual mutations rather than the
+filesystem size.  This contrasts with COW-subvolume approaches where
+merging requires $O(\text{tree})$ diffing regardless of how few
+changes were made (Section~\ref{sec:related}).
 
 \subsection{Abort and Invalidation}
 
@@ -763,11 +752,11 @@ The filesystem supports three memory backing modes:
   enabling GPU/accelerator integration.
 \end{itemize}
 
-The DMA-buf backing mode is a novel contribution that enables
-zero-copy filesystem access from GPUs and accelerators.  By accepting
-a DMA-buf file descriptor at mount time, \daxfs allows accelerator
-memory to serve as the filesystem's backing store, enabling direct
-device-to-device data sharing without CPU-mediated copies.
+The DMA-buf backing mode enables zero-copy filesystem access from
+GPUs and accelerators: by accepting a DMA-buf file descriptor at mount
+time, \daxfs allows accelerator memory to serve as the filesystem's
+backing store, enabling direct device-to-device data sharing without
+CPU-mediated copies.
 
 \subsection{Cross-Kernel Coordination}
 
@@ -792,7 +781,7 @@ and fabric configuration.  Each mount caches the last-seen commit
 sequence; if the sequence advances unexpectedly, the mount checks
 whether its branch has been invalidated.
 
-This approach is fundamentally different from the distributed locking
+This approach is distinct from the distributed locking
 used by cluster filesystems like GFS2 or OCFS2, which require a
 separate lock manager service.  Because the lock state resides
 directly in the shared memory region, \daxfs coordination works across
@@ -821,8 +810,8 @@ kernel atomically transitions the slot from \textsc{Free} to
 transitions to \textsc{Valid}.  Eviction uses a clock-sweep algorithm
 that checks \texttt{ref\_bit} before reclaiming \textsc{Valid} slots.
 
-This shared page cache is a novel mechanism that solves a problem
-unique to multi-kernel environments: the standard Linux page cache is
+This shared page cache addresses a problem unique to multi-kernel
+environments: the standard Linux page cache is
 per-kernel, so $N$ kernel instances reading the same backing file
 would normally maintain $N$ separate cache copies.  The \daxfs shared
 page cache in DAX memory ensures that a page filled by one kernel is
@@ -873,8 +862,7 @@ integrity.
 \label{sec:related}
 %-------------------------------------------------------------------------------
 
-We organize related work into five categories and provide detailed
-comparisons with each.
+We organize related work into five categories.
 
 \subsection{Persistent Memory Filesystems}
 
@@ -892,7 +880,7 @@ All of these systems treat persistent memory as a general-purpose
 storage device with full read-write semantics.  They maintain complex
 metadata structures (B-trees in PMFS, per-inode logs with radix trees
 in NOVA, multi-layer logs in Strata) to support the full range of
-POSIX operations.  \daxfs takes a fundamentally different approach: by
+POSIX operations.  \daxfs takes a different approach: by
 restricting the base image to read-only and recording all mutations as
 simple append-only delta logs, \daxfs trades general-purpose storage
 flexibility for a strictly simpler data path and the ability to
@@ -941,10 +929,10 @@ to support.
 
 \subsection{Read-Only and Container Filesystems}
 
-EROFS~\cite{gao20:erofs} is a high-performance read-only filesystem
-widely used for Android system partitions and container images.  It
-provides excellent read performance through a simple on-disk format and
-optional compression but offers no mutation path.
+EROFS~\cite{gao20:erofs} is a read-only filesystem widely used for
+Android system partitions and container images.  It achieves high read
+performance through a simple on-disk format and optional compression
+but offers no mutation path.
 OverlayFS~\cite{vangoor17:overlayfs} is the standard Linux union
 filesystem for containers, layering a writable upper directory over a
 read-only lower directory.
@@ -956,26 +944,20 @@ layer and requires copy-up (copying an entire file to the upper layer
 on the first write), \daxfs delta logs record only the changed bytes.
 Moreover, OverlayFS nesting is not officially supported and introduces
 compounding overhead, while \daxfs branches nest to arbitrary depth
-with constant overhead per level.  Container images deployed
-via~\cite{harter11:aufs} also rely on union mount stacking, suffering
-the same single-level limitation.
+with constant overhead per level.  Lazy container image distribution~\cite{harter11:aufs} also relies on
+union mount stacking, with the same single-level limitation.
 
 \subsection{Speculative Execution in Filesystems}
 
 Speculator~\cite{nightingale06:specfs} applied speculative execution
-to distributed filesystems, speculatively predicting server responses
-to hide network latency and rolling back on mispredictions.  Its form
-of speculation is fundamentally different from \daxfs: Speculator
-predicts outcomes of existing operations to improve performance, while
-\daxfs provides isolated environments for genuinely independent
-exploration paths.
-
-In Speculator, the filesystem speculates that a remote operation will
-succeed and proceeds optimistically, buffering side effects until
-confirmation arrives.  In \daxfs, multiple agents genuinely execute
-different code paths on different branch views of the filesystem, and
-the filesystem provides the isolation and arbitration (commit one
-winner, abort all losers) needed for this pattern.
+to distributed filesystems, predicting server responses to hide
+network latency and rolling back on mispredictions.  Its form of
+speculation is qualitatively different from that of \daxfs: Speculator
+optimistically assumes a remote operation will succeed and buffers
+side effects until confirmation arrives, whereas \daxfs provides
+isolated branch environments where multiple agents genuinely execute
+different code paths, with the filesystem arbitrating the outcome
+(commit one winner, abort all losers).
 
 Wang and Zheng~\cite{wang26:branchfs} formalize this
 fork-explore-commit/abort model as a general OS primitive called the
