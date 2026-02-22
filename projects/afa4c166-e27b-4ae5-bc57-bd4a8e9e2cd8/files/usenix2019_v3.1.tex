@@ -341,11 +341,6 @@ region.
     {Branch 1 log};
   \node[note, below=1pt of dl1] {$\cdots$};
 
-  % Brace for DAX region
-  \draw[decorate, decoration={brace, amplitude=5pt, mirror}]
-    ([xshift=2.8cm]sb.north east) -- ([xshift=2.8cm]dr.south east)
-    node[midway, right=6pt, font=\small\sffamily] {DAX Memory};
-
   % --- Branch table entry arrow to delta log ---
   \draw[arr, dashed, blue!50!black]
     (bt.south) -- (bt.south |- dl0.west)
