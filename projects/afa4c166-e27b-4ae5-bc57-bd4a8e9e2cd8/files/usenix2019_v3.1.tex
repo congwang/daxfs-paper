@@ -263,7 +263,7 @@ and cross-kernel coordination in a single design.
 tmpfs/ramfs & Per-instance copies; $N$ containers = $N$ images in memory \\
 OverlayFS & Single-level overlay only; copy-up on write; page cache overhead \\
 EROFS & Read-only; no branching; fscache is per-kernel so sharing requires $N$ cache copies \\
-famfs & Per-file allocation complexity; no self-contained images \\
+famfs~\cite{groves24:famfs} & Per-file allocation; no self-contained images; no branching \\
 cramfs & Block I/O plus page cache; no direct memory mapping \\
 Btrfs & COW B-tree snapshots require $O(\text{tree})$ merge; no commit/abort semantics \\
 NILFS2 & Linear checkpoints only; cannot branch independently \\
@@ -917,6 +917,21 @@ flexibility for a strictly simpler data path and the ability to
 support speculative branching.  None of these filesystems provide any
 branching or snapshot primitive.
 
+The closest existing system is famfs~\cite{groves24:famfs}, a
+special-purpose fs-dax filesystem designed for fabric-attached memory
+that, like \daxfs, supports multiple hosts mounting the same DAX
+memory region simultaneously.  However, famfs and \daxfs differ in
+their fundamental abstractions.  Famfs exposes shared memory as
+individual DAX files with per-file extent lists managed from user
+space; it provides no filesystem image format, no branching, and no
+copy-on-write mutation.  All hosts see the same flat namespace with
+no isolation between readers and writers.  \daxfs instead provides a
+self-contained image format with a read-only base overlaid by
+per-branch delta logs, enabling isolated speculative mutation and
+cross-kernel coordination.  Famfs solves the problem of sharing raw
+memory as files; \daxfs solves the problem of branching and merging
+filesystem state across kernel instances.
+
 \subsection{Log-Structured Filesystems}
 
 NILFS2~\cite{konishi06:nilfs} provides continuous snapshotting via a
@@ -1044,7 +1059,7 @@ image creation tool, \texttt{daxfs-branch} management tool, and
 FUSE-based prototype is also available~\cite{branchfs:repo}.
 
 %-------------------------------------------------------------------------------
-\begin{thebibliography}{21}
+\begin{thebibliography}{22}
 
 \bibitem{baumann09:multikernel}
 A.~Baumann, P.~Barham, P.-E. Dagand, T.~Harris, R.~Isaacs, S.~Peter,
@@ -1082,6 +1097,12 @@ X.~Gao, M.~Dong, S.~Miao, W.~Du, C.~Yu, and H.~Chen.
   resource-scarce devices.
 \newblock In {\em USENIX Annual Technical Conference (ATC)}, pages 149--162,
   2019.
+
+\bibitem{groves24:famfs}
+J.~Groves.
+\newblock Introduce the famfs shared-memory file system.
+\newblock Linux kernel patch series (RFC~v2), April 2024.
+\newblock \url{https://lwn.net/Articles/983105/}.
 
 \bibitem{harter11:aufs}
 T.~Harter, B.~Salmon, R.~Liu, A.~C. Arpaci-Dusseau, and R.~H.
