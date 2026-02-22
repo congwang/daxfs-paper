@@ -299,44 +299,78 @@ region.
 \centering
 \resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[
-    block/.style={draw, minimum width=3.2cm, minimum height=0.55cm,
-      font=\small\sffamily, align=center},
-    region/.style={draw, minimum width=3.2cm, minimum height=0.55cm,
-      font=\small\sffamily, fill=blue!8},
-    delta/.style={draw, minimum width=1.4cm, minimum height=0.55cm,
-      font=\small\sffamily, fill=orange!15},
-    arr/.style={-{Stealth[length=2mm]}, thick},
+    region/.style={draw, minimum width=3.0cm, minimum height=0.5cm,
+      font=\scriptsize\sffamily, align=center},
+    sub/.style={draw, minimum width=2.4cm, minimum height=0.4cm,
+      font=\scriptsize\sffamily, align=center},
+    mount/.style={draw, rounded corners, minimum width=1.6cm,
+      minimum height=0.4cm, font=\scriptsize\sffamily, fill=gray!8},
+    arr/.style={-{Stealth[length=1.5mm]}, semithick},
+    note/.style={font=\tiny\sffamily, text=black!60},
   ]
-  % Memory layout
-  \node[region] (sb) at (0, 0) {Superblock (4KB)};
-  \node[region, below=1pt of sb] (bt) {Branch Table};
-  \node[region, below=1pt of bt, fill=green!10] (base) {Base Image (RO)};
-  \node[region, below=1pt of base, fill=yellow!10] (pc) {Page Cache (opt.)};
-  \node[region, below=1pt of pc, fill=orange!10] (dr) {Delta Region};
+  % --- DAX memory layout (center column) ---
+  \node[region, fill=blue!12] (sb) at (0, 0) {Superblock (4KB)};
+  \node[note, right=1pt of sb.east, anchor=west] {global\_coord};
+
+  \node[region, fill=blue!8, below=2pt of sb] (bt) {Branch Table};
+  \node[note, right=1pt of bt.east, anchor=west] {128B $\times$ 256};
+
+  % Base image with internal structure
+  \node[region, fill=green!12, below=2pt of bt,
+    minimum height=1.5cm] (base) {};
+  \node[note, anchor=north] at (base.north) {Base Image (opt.)};
+  \node[sub, fill=green!6, below=0.15cm of base.north] (bsuper)
+    {Base Super (4KB)};
+  \node[sub, fill=green!6, below=1pt of bsuper] (itable)
+    {Inode Table (64B $\times$ N)};
+  \node[sub, fill=green!6, below=1pt of itable] (darea)
+    {Data Area};
+
+  % Page cache
+  \node[region, fill=yellow!12, below=2pt of base] (pc)
+    {Page Cache (opt.)};
+  \node[note, right=1pt of pc.east, anchor=west] {4KB slots};
+
+  % Delta region with per-branch logs
+  \node[region, fill=orange!12, below=2pt of pc,
+    minimum height=1.2cm] (dr) {};
+  \node[note, anchor=north] at (dr.north) {Delta Region};
+  \node[sub, fill=orange!8, below=0.15cm of dr.north] (dl0)
+    {Branch 0 log};
+  \node[sub, fill=orange!8, below=1pt of dl0] (dl1)
+    {Branch 1 log};
+  \node[note, below=1pt of dl1] {$\cdots$};
 
   % Brace for DAX region
   \draw[decorate, decoration={brace, amplitude=5pt, mirror}]
-    ([xshift=3pt]sb.north east) -- ([xshift=3pt]dr.south east)
-    node[midway, right=8pt, font=\small\sffamily] {DAX Memory};
+    ([xshift=2.8cm]sb.north east) -- ([xshift=2.8cm]dr.south east)
+    node[midway, right=6pt, font=\small\sffamily] {DAX Memory};
 
-  % Branch details
-  \node[delta, right=2.2cm of dr, yshift=0.4cm] (d1) {Branch 1};
-  \node[delta, below=1pt of d1] (d2) {Branch 2};
-  \node[delta, below=1pt of d2] (d3) {Branch N};
-  \draw[arr, dashed] (dr.east) -- (d1.west);
+  % --- Branch table entry arrow to delta log ---
+  \draw[arr, dashed, blue!50!black]
+    (bt.south) -- (bt.south |- dl0.west)
+    node[note, midway, left=1pt] {offset};
 
-  % Mount points
-  \node[block, left=1.8cm of base, fill=green!8, yshift=0.3cm]
-    (m1) {Mount /mnt};
-  \node[block, left=1.8cm of dr, fill=orange!8, yshift=0.2cm]
-    (m2) {Mount /spec};
+  % --- Mount points (left column) ---
+  \node[mount, left=1.6cm of base] (m1) {Mount (RO)};
+  \node[mount, left=1.6cm of dr] (m2) {Mount (RW)};
+
+  % Main mount reads base image
   \draw[arr] (m1.east) -- (base.west);
+
+  % Branch mount reads delta log AND falls back to base image
   \draw[arr] (m2.east) -- (dr.west);
+  \draw[arr, densely dotted] (m2.north east) -- (base.south west)
+    node[note, midway, above=1pt, sloped] {fallback};
 \end{tikzpicture}%
 }
-\caption{\daxfs memory layout.  A contiguous DAX region contains the
-  superblock, branch table, read-only base image, optional shared page
-  cache, and delta region.  Each mount binds to a specific branch.}
+\caption{\daxfs on-DAX memory layout (from \texttt{daxfs\_format.h}).
+  A contiguous region contains the superblock (with global coordination
+  structure), branch table (128-byte entries), optional read-only base
+  image, optional shared page cache, and delta region partitioned into
+  per-branch logs.  Read-only mounts access the base image directly;
+  read-write branch mounts consult the delta log first and fall back
+  to the base image.}
 \label{fig:arch}
 \end{figure}
 
