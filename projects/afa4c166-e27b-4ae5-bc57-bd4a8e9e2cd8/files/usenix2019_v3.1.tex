@@ -432,17 +432,12 @@ trees used by NOVA, PMFS, and Btrfs.
 
 For deployments where the base image is too large for DAX memory,
 \daxfs supports a \emph{split mode}: metadata and delta logs reside in
-DAX memory, while file data lives in an external backing file.  A
-shared page cache in the DAX region provides cross-kernel caching of
-backing-file pages using a three-state machine
-(\textsc{Free}$\to$\textsc{Pending}$\to$\textsc{Valid}) with atomic
-\texttt{cmpxchg} transitions.  To our knowledge, this is the first
-filesystem page cache shared across independent kernel instances
-without a distributed lock manager: the standard Linux page cache is
-per-kernel, and cluster filesystems (GFS2, OCFS2) rely on network-based
-distributed locking for cache coherence.  The \daxfs shared page cache
-resides in DAX memory and serves all kernel instances simultaneously
-using only hardware atomics.
+DAX memory, while file data lives in an external backing file
+(specified via the \texttt{backing=} mount option).  A shared page
+cache in the DAX region caches backing-file pages so that multiple
+kernel instances can share cached data without maintaining separate
+per-kernel copies.  Section~\ref{sec:impl-pcache} describes the
+cache mechanism in detail.
 
 %-------------------------------------------------------------------------------
 \section{On-Disk Format}
@@ -774,22 +769,22 @@ subsystem maps it directly into the user's page tables.  For writes,
 address; the DAX subsystem performs the write via direct store
 instructions.
 
-The filesystem supports three memory backing modes:
+The filesystem supports two memory backing modes:
 \begin{itemize}
-\item \textbf{Physical address.}  A raw physical address range is
+\item \textbf{Physical address.}  A raw physical address range
+  (specified via \texttt{phys=} and \texttt{size=} mount options) is
   mapped via \texttt{memremap}.
-\item \textbf{DAX device.}  A \texttt{/dev/dax} or DMA heap device
-  provides the memory.
 \item \textbf{DMA-buf.}  A DMA buffer file descriptor is passed via
   the new mount API (\texttt{fsconfig} with \texttt{FSCONFIG\_SET\_FD}),
   enabling GPU/accelerator integration.
 \end{itemize}
 
-The DMA-buf backing mode enables zero-copy filesystem access from
-GPUs and accelerators: by accepting a DMA-buf file descriptor at mount
-time, \daxfs allows accelerator memory to serve as the filesystem's
-backing store, enabling direct device-to-device data sharing without
-CPU-mediated copies.
+The DMA-buf mode enables zero-copy filesystem access from GPUs and
+accelerators: accelerator memory serves as the filesystem's backing
+store, enabling direct device-to-device data sharing without
+CPU-mediated copies.  Both modes bypass the kernel's
+\texttt{dax\_device} layer entirely, mapping memory directly into the
+filesystem's address space.
 
 \subsection{Cross-Kernel Coordination}
 
@@ -823,9 +818,11 @@ available, across CXL-connected hosts, with no additional
 infrastructure.
 
 \subsection{Shared Page Cache}
+\label{sec:impl-pcache}
 
 In backing-store mode, a direct-mapped hash cache resides in the DAX
-region.  Each slot has 16 bytes of metadata:
+region.  Each backing-file page maps to exactly one cache slot via
+hash, and each slot has 16 bytes of metadata:
 
 \begin{lstlisting}
 struct daxfs_pcache_slot {
@@ -835,18 +832,23 @@ struct daxfs_pcache_slot {
 };
 \end{lstlisting}
 
-The three-state machine
+A three-state machine
 (\textsc{Free}$\to$\textsc{Pending}$\to$\textsc{Valid})
-uses \texttt{cmpxchg} for lock-free transitions.  On a cache miss, a
-kernel atomically transitions the slot from \textsc{Free} to
-\textsc{Pending}, fills the data from the backing file, and
-transitions to \textsc{Valid}.  Eviction uses a clock-sweep algorithm
-that checks \texttt{ref\_bit} before reclaiming \textsc{Valid} slots.
+governs all slot transitions via \texttt{cmpxchg} on the DAX memory
+address.  On a cache miss, a kernel atomically transitions the slot
+from \textsc{Free} to \textsc{Pending}, fills the data from the
+backing file, and transitions to \textsc{Valid}.  Eviction uses a
+clock-sweep algorithm that checks \texttt{ref\_bit} before reclaiming
+\textsc{Valid} slots.
 
-Because the cache resides in shared DAX memory, a page filled by one
-kernel is immediately accessible to all others, eliminating the $N$
-separate cache copies that $N$ kernel instances would otherwise
-maintain.
+To our knowledge, this is the first filesystem page cache shared
+across independent kernel instances without a distributed lock
+manager.  The standard Linux page cache is per-kernel, and cluster
+filesystems (GFS2, OCFS2) rely on network-based distributed locking
+for cache coherence.  Because the \daxfs cache resides in shared DAX
+memory, a page filled by one kernel is immediately accessible to all
+others via hardware coherence, eliminating the $N$ separate cache
+copies that $N$ kernel instances would otherwise maintain.
 
 \subsection{Security and Validation}
 
