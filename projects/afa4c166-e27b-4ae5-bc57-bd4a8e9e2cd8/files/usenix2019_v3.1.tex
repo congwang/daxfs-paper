@@ -106,7 +106,7 @@ that no existing filesystem offers.
 AI agent systems perform \emph{speculative execution}: multiple agents
 explore different solution paths on a shared environment, and only the
 winning path is committed while losers are
-discarded~\cite{wei23:llmspec}.  Multikernel architectures run
+discarded~\cite{wang26:branchfs,wei23:llmspec}.  Multikernel architectures run
 independent OS instances on shared
 hardware~\cite{baumann09:multikernel}, needing a common filesystem
 without distributed locking.  Container deployments share a read-only
@@ -972,9 +972,18 @@ succeed and proceeds optimistically, buffering side effects until
 confirmation arrives.  In \daxfs, multiple agents genuinely execute
 different code paths on different branch views of the filesystem, and
 the filesystem provides the isolation and arbitration (commit one
-winner, abort all losers) needed for this pattern.  No other
-filesystem provides this fork-explore-commit/abort model as a
-first-class primitive.
+winner, abort all losers) needed for this pattern.
+
+Wang and Zheng~\cite{wang26:branchfs} formalize this
+fork-explore-commit/abort model as a general OS primitive called the
+\emph{branch context}, providing copy-on-write state isolation with
+independent filesystem views and process groups.  Their BranchFS
+prototype~\cite{branchfs:repo} demonstrates the concept via FUSE,
+achieving branch creation in under 350~$\mu$s and commit overhead
+under 1~ms.  \daxfs~\cite{daxfs:repo} complements this work by
+providing the same branching semantics at the kernel level on
+DAX-mapped memory, eliminating FUSE overhead and enabling cross-kernel
+coordination via hardware atomics on shared memory.
 
 %-------------------------------------------------------------------------------
 \section{Conclusion}
@@ -1013,13 +1022,14 @@ shared-memory computing.
 \section*{Availability}
 %-------------------------------------------------------------------------------
 
-\daxfs is available as open-source software.  The implementation
-includes the Linux kernel module, \texttt{mkdaxfs} image creation
-tool, \texttt{daxfs-branch} management tool, and
-\texttt{daxfs-inspect} debugging tool.
+\daxfs is available as open-source software~\cite{daxfs:repo}.  The
+implementation includes the Linux kernel module, \texttt{mkdaxfs}
+image creation tool, \texttt{daxfs-branch} management tool, and
+\texttt{daxfs-inspect} debugging tool.  The companion BranchFS
+FUSE-based prototype is also available~\cite{branchfs:repo}.
 
 %-------------------------------------------------------------------------------
-\begin{thebibliography}{18}
+\begin{thebibliography}{21}
 
 \bibitem{baumann09:multikernel}
 A.~Baumann, P.~Barham, P.-E. Dagand, T.~Harris, R.~Isaacs, S.~Peter,
@@ -1029,9 +1039,20 @@ A.~Baumann, P.~Barham, P.-E. Dagand, T.~Harris, R.~Isaacs, S.~Peter,
 \newblock In {\em ACM Symposium on Operating Systems Principles (SOSP)}, pages
   29--44, 2009.
 
+\bibitem{branchfs:repo}
+{BranchFS}.
+\newblock {BranchFS}: {FUSE}-based filesystem for speculative branching.
+\newblock \url{https://github.com/multikernel/branchfs}.
+
 \bibitem{cxl22:spec}
 {CXL Consortium}.
 \newblock {Compute Express Link (CXL)} specification, revision 3.0, 2022.
+
+\bibitem{daxfs:repo}
+{DAXFS}.
+\newblock {DAXFS}: Delta-log memory-native filesystem with speculative
+  branching.
+\newblock \url{https://github.com/multikernel/daxfs}.
 
 \bibitem{dulloor14:pmfs}
 S.~R. Dulloor, S.~Kumar, A.~Keshavamurthy, P.~Lantz, D.~Reddy, R.~Sankaran,
@@ -1117,6 +1138,11 @@ A.~J. Van~Goor, J.~Hofmann, H.~V. Madhyastha, and E.~Zadok.
 \newblock To fuse or not to fuse: Performance of user-space file systems.
 \newblock In {\em USENIX Conference on File and Storage Technologies (FAST)},
   pages 59--72, 2017.
+
+\bibitem{wang26:branchfs}
+C.~Wang and Y.~Zheng.
+\newblock Fork, explore, commit: {OS} primitives for agentic exploration.
+\newblock {\em arXiv:2602.08199}, 2026.
 
 \bibitem{wei23:llmspec}
 J.~Wei, X.~Wang, D.~Schuurmans, M.~Bosma, E.~Chi, Q.~Le, and D.~Zhou.
