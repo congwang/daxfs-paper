@@ -885,23 +885,6 @@ Btrfs image requires traversing multiple interconnected B-trees, and
 ext4 validation must check extent trees, directory htrees, and journal
 integrity.
 
-\subsection{User-Space Tools}
-
-\daxfs provides three user-space tools:
-
-\begin{description}
-\item[\texttt{mkdaxfs}.]  Creates a \daxfs image from a source
-  directory.  Handles hard-link deduplication, offset calculation, and
-  flat directory serialization.  Can allocate memory from DMA heaps,
-  physical addresses, or write to a file.
-
-\item[\texttt{daxfs-branch}.]  Manages branch lifecycle: create,
-  commit, abort, and list operations.
-
-\item[\texttt{daxfs-inspect}.]  Dumps image metadata for debugging:
-  superblock fields, branch table, inode table, and delta logs.
-\end{description}
-
 %-------------------------------------------------------------------------------
 \section{Related Work}
 \label{sec:related}
