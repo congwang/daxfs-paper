@@ -440,10 +440,13 @@ DAX memory, while file data lives in an external backing file.  A
 shared page cache in the DAX region provides cross-kernel caching of
 backing-file pages using a three-state machine
 (\textsc{Free}$\to$\textsc{Pending}$\to$\textsc{Valid}) with atomic
-\texttt{cmpxchg} transitions.  Unlike the Linux kernel's page cache,
-which is per-kernel and requires no cross-kernel sharing, this cache
-resides in shared DAX memory and serves all kernel instances
-simultaneously without any distributed cache coherence protocol.
+\texttt{cmpxchg} transitions.  To our knowledge, this is the first
+filesystem page cache shared across independent kernel instances
+without a distributed lock manager: the standard Linux page cache is
+per-kernel, and cluster filesystems (GFS2, OCFS2) rely on network-based
+distributed locking for cache coherence.  The \daxfs shared page cache
+resides in DAX memory and serves all kernel instances simultaneously
+using only hardware atomics.
 
 %-------------------------------------------------------------------------------
 \section{On-Disk Format}
@@ -844,13 +847,10 @@ kernel atomically transitions the slot from \textsc{Free} to
 transitions to \textsc{Valid}.  Eviction uses a clock-sweep algorithm
 that checks \texttt{ref\_bit} before reclaiming \textsc{Valid} slots.
 
-This shared page cache addresses a problem unique to multi-kernel
-environments: the standard Linux page cache is
-per-kernel, so $N$ kernel instances reading the same backing file
-would normally maintain $N$ separate cache copies.  The \daxfs shared
-page cache in DAX memory ensures that a page filled by one kernel is
-immediately accessible to all others, with no inter-kernel
-communication.
+Because the cache resides in shared DAX memory, a page filled by one
+kernel is immediately accessible to all others, eliminating the $N$
+separate cache copies that $N$ kernel instances would otherwise
+maintain.
 
 \subsection{Security and Validation}
 
