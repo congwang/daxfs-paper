@@ -123,30 +123,22 @@ innovations:
 
 \begin{enumerate}
 \item \textbf{Memory-native zero-copy access.}  File reads resolve to
-  direct memory loads with no page cache, no buffer heads, and no
-  copies.  Unlike NOVA and PMFS, which still maintain per-inode logs
-  and complex metadata trees even on byte-addressable memory, \daxfs
-  uses a flat base image format that maps directly into the address
-  space, reducing the read path to a single pointer dereference.
+  direct pointer dereferences into DAX memory with no page cache, no
+  buffer heads, and no copies.  Unlike NOVA and PMFS, which maintain
+  per-inode logs and metadata trees, \daxfs uses a flat base image
+  that maps directly into the address space.
 
-\item \textbf{Delta-log speculative branching.}  \daxfs introduces the
-  first filesystem-level speculative branching primitive.  A read-only
-  base image is overlaid with append-only delta logs, where each branch
-  records mutations as log entries.  Branches nest to arbitrary depth,
-  enabling N-level speculation with $O(\text{deltas})$ commit cost.
-  This is fundamentally different from Btrfs snapshots (which require
-  $O(\text{tree})$ diffing to merge), OverlayFS (which supports only
-  one overlay level), and NILFS2 (which provides only linear
-  checkpoints).
+\item \textbf{Delta-log speculative branching.}  A read-only base
+  image is overlaid with append-only delta logs.  Branches nest to
+  arbitrary depth, enabling N-level speculation with
+  $O(\text{deltas})$ commit cost, unlike Btrfs ($O(\text{tree})$
+  merging), OverlayFS (single level), or NILFS2 (linear checkpoints).
 
 \item \textbf{Hardware-atomic cross-kernel coordination.}  Branch
-  coordination across independent kernel instances uses
-  \texttt{cmpxchg} directly on DAX memory, with no IPC, no distributed
-  consensus protocol, and no kernel-to-kernel communication.  A single
-  commit sequence counter in shared memory lets all participants
-  detect state changes.  No prior filesystem achieves multi-kernel
-  coordination without a distributed locking protocol or shared
-  network service.
+  coordination uses \texttt{cmpxchg} directly on DAX memory, with no
+  distributed consensus or kernel-to-kernel communication.  No prior
+  filesystem achieves multi-kernel coordination without a distributed
+  locking protocol.
 \end{enumerate}
 
 Table~\ref{tab:feature-matrix} provides a feature-level comparison of
@@ -178,17 +170,6 @@ Flat validatable format    & \cmark & \xmark & \xmark & \xmark & \xmark & \cmark
   supports a single upper layer over a read-only lower layer.}
 \label{tab:feature-matrix}
 \end{table*}
-
-The rest of this paper is organized as follows.
-Section~\ref{sec:motivation} motivates the design with target use
-cases.  Section~\ref{sec:design} presents the \daxfs architecture and
-its key innovations.
-Section~\ref{sec:format} details the on-disk format.
-Section~\ref{sec:branching} describes the branching model.
-Section~\ref{sec:impl} covers implementation.
-Section~\ref{sec:related} surveys related work.
-Section~\ref{sec:discussion} discusses limitations.
-Section~\ref{sec:conclusion} concludes.
 
 %-------------------------------------------------------------------------------
 \section{Motivation}
@@ -584,22 +565,10 @@ explicitly aborted or when a sibling branch commits.
 
 \subsection{N-Level Speculation}
 
-A distinctive feature of \daxfs is that branches nest to arbitrary
-depth, forming a tree rooted at the main branch.  Each branch inherits
-its parent's state (the union of the parent's delta log and the base
-image) and records its own mutations independently.  This contrasts
-with existing approaches:
-
-\begin{itemize}
-\item \textbf{OverlayFS} supports only a single upper layer;
-  nesting requires stacking mounts with compounding overhead.
-
-\item \textbf{Btrfs} snapshots are independent trees, not a
-  parent-child hierarchy; merging requires \texttt{btrfs send/receive}.
-
-\item \textbf{NILFS2} checkpoints are strictly sequential, with no
-  concept of independent parallel branches.
-\end{itemize}
+Branches nest to arbitrary depth, forming a tree rooted at the main
+branch.  Each branch inherits its parent's state (the union of the
+parent's delta log and the base image) and records its own mutations
+independently.
 
 \begin{figure}[t]
 \centering
@@ -678,57 +647,6 @@ data.
 
 Single-level backtracking is also supported: unmounting a branch
 discards only that branch while preserving the parent chain.
-
-\subsection{Comparison with COW Subvolumes}
-
-Table~\ref{tab:delta-vs-cow} compares delta-log branches with
-traditional COW subvolumes in detail.
-
-\begin{table}[t]
-\centering
-\small
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Aspect} & \textbf{COW (Btrfs)} & \textbf{Delta-Log (\daxfs)} \\
-\midrule
-Create & Snapshot tree & Allocate log \\
-Commit & Diff + apply, $O(\text{tree})$ & Append, $O(\text{deltas})$ \\
-Abort & Delete snapshot & Discard log \\
-N-level & Complex merge & Chain to root \\
-Invalidate & Not supported & Atomic \\
-Cross-kernel & Not supported & \texttt{cmpxchg} on DAX \\
-\bottomrule
-\end{tabular}
-\caption{Delta-log branches vs.\ COW subvolumes.  The delta-log
-  model is purpose-built for speculative branching with single-winner
-  semantics.}
-\label{tab:delta-vs-cow}
-\end{table}
-
-\subsection{Comparison with Log-Structured Approaches}
-
-Table~\ref{tab:log-compare} compares \daxfs with other log-structured
-or snapshot-capable filesystems on the dimensions most relevant to
-speculative branching.
-
-\begin{table}[t]
-\centering
-\small
-\begin{tabular}{@{}lcccc@{}}
-\toprule
-& \textbf{\daxfs} & \textbf{NILFS2} & \textbf{Btrfs} & \textbf{F2FS} \\
-\midrule
-Log-structured    & Yes & Yes & No & Yes \\
-In-memory index   & Yes & Yes & No & Yes \\
-Hierarchical branches & Yes & No & Partial & No \\
-Commit/abort semantics & Yes & No & No & No \\
-\bottomrule
-\end{tabular}
-\caption{Comparison with log-structured and snapshot-capable
-  filesystems.  Only \daxfs provides both hierarchical branches and
-  commit/abort semantics.}
-\label{tab:log-compare}
-\end{table}
 
 %-------------------------------------------------------------------------------
 \section{Implementation}
@@ -933,62 +851,32 @@ filesystem state across kernel instances.
 \subsection{Log-Structured Filesystems}
 
 NILFS2~\cite{konishi06:nilfs} provides continuous snapshotting via a
-log-structured design where the entire filesystem is written
-sequentially.  Its checkpoints capture the full filesystem state at
-each point in time and can be mounted as read-only snapshots.
-F2FS~\cite{lee11:f2fs} uses a log-structured approach optimized for
-flash storage with a multi-head logging scheme.
-
-\daxfs shares the log-structured principle with these systems but
-applies it at a different granularity.  In NILFS2, the log captures
-the entire filesystem state, and checkpoints are strictly linear (each
-checkpoint is derived from its predecessor).  It is impossible to
-create two independent checkpoints that branch from the same point.
-In \daxfs, each branch maintains its own independent log, enabling a
-tree of parallel branches that can be committed or aborted
-independently.  F2FS provides no snapshot or branching mechanism at
-all.
+whole-filesystem log, but its checkpoints are strictly linear: it is
+impossible to branch from the same point into parallel paths.
+F2FS~\cite{lee11:f2fs} uses log-structured writes for flash but
+provides no snapshot or branching mechanism.  \daxfs applies the
+log-structured principle at per-branch granularity, enabling a tree of
+independent parallel branches.
 
 \subsection{COW and Snapshot Filesystems}
 
-Btrfs~\cite{rodeh13:btrfs} is the most feature-rich Linux filesystem
-for snapshots, providing COW subvolumes that share underlying extents.
-Creating a Btrfs snapshot is fast (it copies only the root tree node),
-but the key limitation for speculative workloads is merging.  To
-merge snapshot $A$ back into the main subvolume, one must use
-\texttt{btrfs send} to compute the delta between $A$ and its parent,
-then \texttt{btrfs receive} to apply it.  This is an $O(\text{tree})$
-operation that must traverse the entire B-tree to find changed extents.
-Furthermore, Btrfs has no built-in ``commit this branch and invalidate
-all siblings'' primitive; each snapshot is an independent entity that
-must be managed explicitly.
-
-By contrast, \daxfs commit is an $O(\text{deltas})$ operation that
-copies only the actual mutations from child to parent.  Sibling
-invalidation is atomic and built into the commit path.  The delta-log
-model was designed specifically for the speculative execution pattern
-of fork-explore-commit/abort, which Btrfs snapshots were not designed
-to support.
+Btrfs~\cite{rodeh13:btrfs} provides COW subvolumes that share
+underlying extents.  Snapshot creation is fast, but merging requires
+\texttt{btrfs send/receive}, an $O(\text{tree})$ operation.
+Btrfs also lacks atomic sibling invalidation, making it unsuitable
+for single-winner speculation.  \daxfs commit is $O(\text{deltas})$
+with built-in sibling invalidation.
 
 \subsection{Read-Only and Container Filesystems}
 
-EROFS~\cite{gao20:erofs} is a read-only filesystem widely used for
-Android system partitions and container images.  It achieves high read
-performance through a simple on-disk format and optional compression
-but offers no mutation path.
-OverlayFS~\cite{vangoor17:overlayfs} is the standard Linux union
-filesystem for containers, layering a writable upper directory over a
-read-only lower directory.
-
-\daxfs combines the read-only base efficiency of EROFS with
-multi-level writable branches, eliminating the page cache overhead
-that OverlayFS imposes.  While OverlayFS supports only a single upper
-layer and requires copy-up (copying an entire file to the upper layer
-on the first write), \daxfs delta logs record only the changed bytes.
-Moreover, OverlayFS nesting is not officially supported and introduces
-compounding overhead, while \daxfs branches nest to arbitrary depth
-with constant overhead per level.  Lazy container image distribution~\cite{harter11:aufs} also relies on
-union mount stacking, with the same single-level limitation.
+EROFS~\cite{gao20:erofs} is a read-only filesystem for container
+images and Android partitions; it offers no mutation path.
+OverlayFS~\cite{vangoor17:overlayfs} layers a writable directory over
+a read-only lower but supports only a single level, requires copy-up
+on write, and relies on the page cache.  Lazy container image
+distribution~\cite{harter11:aufs} also depends on union mount
+stacking.  \daxfs combines the read-only base efficiency of EROFS
+with multi-level writable branches and no page cache overhead.
 
 \subsection{Speculative Execution in Filesystems}
 
@@ -1105,25 +993,12 @@ a class of workloads (AI agent speculation, multikernel shared
 filesystems, CXL memory pooling, and container rootfs sharing) that
 are poorly served by existing filesystem designs.
 
-The key innovations of \daxfs are: (1)~the delta-log branching model,
-which provides $O(\text{deltas})$ commit cost, arbitrary nesting
-depth, and clean single-winner semantics, where prior approaches
-(Btrfs, NILFS2) require either $O(\text{tree})$ merging or offer only
-linear checkpoints; (2)~the truly zero-copy read path that
-eliminates all intermediate metadata structures between the
-application and the data, going beyond even existing DAX-aware
-filesystems like NOVA and PMFS; and (3)~cross-kernel coordination via
-\texttt{cmpxchg} on shared DAX memory, which eliminates distributed
-locking protocols for co-located kernels and, where CXL hardware
-coherence is available, extends to multi-host sharing.
-
 \daxfs demonstrates that memory-native filesystem design, treating
-memory as the storage medium rather than a cache, enables
-fundamentally new abstractions that are impossible in block-device
-filesystems.  As byte-addressable memory becomes ubiquitous through
-persistent memory and CXL, we expect speculative branching to become
-an essential filesystem primitive for AI agent workloads and
-shared-memory computing.
+memory as the storage medium rather than a cache, enables abstractions
+that are impossible in block-device filesystems.  As byte-addressable
+memory becomes ubiquitous through persistent memory and CXL, we expect
+speculative branching to become an essential filesystem primitive for
+AI agent workloads and shared-memory computing.
 
 %-------------------------------------------------------------------------------
 \section*{Availability}
