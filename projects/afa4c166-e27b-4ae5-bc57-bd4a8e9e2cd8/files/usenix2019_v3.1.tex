@@ -570,37 +570,9 @@ branch.  Each branch inherits its parent's state (the union of the
 parent's delta log and the base image) and records its own mutations
 independently.
 
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[
-    branch/.style={draw, rounded corners, minimum width=1.1cm,
-      minimum height=0.5cm, font=\small\sffamily},
-    arr/.style={-{Stealth[length=2mm]}, thick},
-    level distance=1.2cm,
-    sibling distance=1.6cm,
-  ]
-  \node[branch, fill=green!10] (main) {main};
-  \node[branch, fill=orange!10, below left=0.8cm and 0.6cm of main] (b1) {spec1};
-  \node[branch, fill=orange!10, below right=0.8cm and 0.6cm of main] (b2) {spec2};
-  \node[branch, fill=yellow!10, below left=0.8cm and 0.2cm of b1] (b1a) {spec1a};
-  \node[branch, fill=yellow!10, below right=0.8cm and 0.2cm of b1] (b1b) {spec1b};
-
-  \draw[arr] (main) -- (b1);
-  \draw[arr] (main) -- (b2);
-  \draw[arr] (b1) -- (b1a);
-  \draw[arr] (b1) -- (b1b);
-\end{tikzpicture}
-\caption{N-level branch tree.  \texttt{spec1a} and \texttt{spec1b}
-  are nested speculations within \texttt{spec1}.  Committing
-  \texttt{spec1a} merges the chain spec1a$\to$spec1$\to$main and
-  invalidates \texttt{spec1b} and \texttt{spec2}.}
-\label{fig:tree}
-\end{figure}
-
 This model maps naturally to AI agent speculation.  An orchestrator
 forks $N$ agents from a common state; each agent may itself fork
-sub-agents for deeper exploration.  Figure~\ref{fig:tree} shows a
-two-level speculation tree.
+sub-agents for deeper exploration.
 
 \subsection{Commit Semantics}
 
