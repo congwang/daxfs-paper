@@ -65,9 +65,10 @@ siblings are invalidated.  Cross-kernel coordination uses hardware
 locking.  To our knowledge, \daxfs is the first filesystem to provide
 hierarchical speculative branching with single-winner commit semantics
 as a native primitive.  We describe the design, on-disk format,
-branching semantics, and target use cases including AI agent
-speculation, multikernel shared filesystems, CXL memory pooling, and
-container rootfs sharing.
+branching semantics, and implementation of a working Linux kernel
+module, and discuss target use cases including AI agent speculation,
+multikernel shared filesystems, CXL memory pooling, and container
+rootfs sharing.
 \end{abstract}
 
 %-------------------------------------------------------------------------------
@@ -166,9 +167,7 @@ N-level speculation        & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark
 Atomic commit/abort        & \cmark & \xmark & \xmark & \xmark & \xmark & N/A & \xmark \\
 Sibling invalidation       & \cmark & \xmark & \xmark & \xmark & \xmark & N/A & \xmark \\
 Cross-kernel coordination  & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark & \xmark \\
-No distributed locking     & \cmark & N/A & N/A & \xmark & N/A & N/A & N/A \\
 Flat validatable format    & \cmark & \xmark & \xmark & \xmark & \xmark & \cmark & N/A \\
-$O(\text{deltas})$ merge   & \cmark & N/A & N/A & \xmark & N/A & N/A & N/A \\
 \bottomrule
 \end{tabular}
 \caption{Feature comparison of \daxfs with existing filesystems.
@@ -187,7 +186,8 @@ its key innovations.
 Section~\ref{sec:format} details the on-disk format.
 Section~\ref{sec:branching} describes the branching model.
 Section~\ref{sec:impl} covers implementation.
-Section~\ref{sec:related} surveys related work in detail.
+Section~\ref{sec:related} surveys related work.
+Section~\ref{sec:discussion} discusses limitations.
 Section~\ref{sec:conclusion} concludes.
 
 %-------------------------------------------------------------------------------
@@ -424,9 +424,15 @@ Delta entries are typed: \texttt{WRITE} (file data), \texttt{CREATE}
 (new file), \texttt{DELETE} (tombstone), \texttt{TRUNCATE},
 \texttt{MKDIR}, \texttt{RENAME}, \texttt{SETATTR}, and
 \texttt{SYMLINK}.  Each entry is self-describing and
-variable-length.  The append-only structure ensures crash consistency
-for individual operations without the journaling or copy-on-write
-trees used by NOVA, PMFS, and Btrfs.
+variable-length.  The append-only structure simplifies crash
+recovery: because the base image is immutable and delta entries are
+written sequentially, the worst case after a crash is a partially
+written tail entry, which can be detected by bounds checking during
+index rebuild at mount time.  No journal replay or checkpoint
+restoration is needed, unlike NOVA, PMFS, and Btrfs.  However, on
+non-persistent backing (DMA-buf on volatile memory), a crash loses
+all delta state; crash durability requires persistent memory with
+ADR (Asynchronous DRAM Refresh) or explicit cache-line flushes.
 
 \subsection{Backing Store Mode}
 
@@ -510,14 +516,14 @@ linked-list directories in tmpfs):
 
 \subsection{Delta Log Entries}
 
-Each delta log entry begins with a 16-byte header:
+Each delta log entry begins with a 24-byte header:
 
 \begin{lstlisting}
 struct daxfs_delta_hdr {
-  u8   type;       /* entry type */
-  u8   reserved[3];
+  __le32 type;       /* entry type */
   __le32 total_size; /* header + payload */
   __le64 ino;        /* affected inode */
+  __le64 timestamp;  /* for ordering */
 };
 \end{lstlisting}
 
@@ -535,8 +541,6 @@ and \textsc{Symlink} stores both the link name and target.
 This log format is deliberately more compact and simpler than the
 per-inode logs used by NOVA (which maintain separate log pages with
 forward/backward pointers) or the journal entries used by PMFS.
-Because \daxfs delta entries are append-only and self-contained,
-recovery requires no log replay or checkpoint restoration.
 
 %-------------------------------------------------------------------------------
 \section{Branching Model}
@@ -732,8 +736,8 @@ Commit/abort semantics & Yes & No & No & No \\
 %-------------------------------------------------------------------------------
 
 \daxfs is implemented as a Linux kernel module.  The implementation
-comprises approximately 6,500 lines of C for the kernel module and
-2,800 lines for user-space tools.
+comprises approximately 6,300 lines of C for the kernel module and
+2,800 lines for user-space tools (including comments and headers).
 
 \subsection{In-Memory Indexing}
 
@@ -799,7 +803,8 @@ struct daxfs_global_coord {
 };
 \end{lstlisting}
 
-The spinlock uses \texttt{cmpxchg} directly on the DAX memory address.
+The spinlock uses \texttt{cmpxchg} directly on the DAX memory address
+in a simple test-and-set loop with \texttt{cpu\_relax()} backoff.
 Within a single node, DAX memory is cache-coherent across all CPUs, so
 the atomic operates with normal SMP semantics.  For CXL-attached
 shared memory, CXL~3.0 provides hardware coherence mechanisms
@@ -808,6 +813,14 @@ hosts, though the coherence guarantees depend on the specific hardware
 and fabric configuration.  Each mount caches the last-seen commit
 sequence; if the sequence advances unexpectedly, the mount checks
 whether its branch has been invalidated.
+
+The lock is held only briefly (for the duration of a commit or branch
+creation), and contention is expected to be low because commit is a
+rare operation relative to normal I/O.  The current implementation
+does not include a timeout or recovery mechanism: if a kernel crashes
+while holding the coordination lock, the lock remains held and other
+kernels will spin indefinitely.  Section~\ref{sec:discussion}
+discusses this limitation and potential mitigations.
 
 This approach is distinct from the distributed locking
 used by cluster filesystems like GFS2 or OCFS2, which require a
@@ -1012,10 +1025,89 @@ fork-explore-commit/abort model as a general OS primitive called the
 independent filesystem views and process groups.  Their BranchFS
 prototype~\cite{branchfs:repo} demonstrates the concept via FUSE,
 achieving branch creation in under 350~$\mu$s and commit overhead
-under 1~ms.  \daxfs~\cite{daxfs:repo} complements this work by
-providing the same branching semantics at the kernel level on
-DAX-mapped memory, eliminating FUSE overhead and enabling cross-kernel
-coordination via hardware atomics on shared memory.
+under 1~ms.  \daxfs~\cite{daxfs:repo} is the kernel-level realization
+of the same branching model by the same authors, replacing
+FUSE with a native kernel module on DAX-mapped memory.  This
+eliminates FUSE overhead, enables cross-kernel coordination via
+hardware atomics on shared memory, and supports direct DAX mappings
+for zero-copy access, none of which are achievable in a FUSE-based
+design.
+
+%-------------------------------------------------------------------------------
+\section{Discussion and Limitations}
+\label{sec:discussion}
+%-------------------------------------------------------------------------------
+
+\paragraph{Delta region exhaustion.}
+Each branch has a fixed delta log capacity allocated at creation time.
+When a branch's delta log is full, further writes return
+\texttt{ENOSPC}.  There is no garbage collection or compaction
+mechanism: because branches are designed for short-lived speculative
+exploration, the expected pattern is to commit or abort before
+exhaustion.  For long-running branches, the administrator must
+allocate a larger delta region at format time.  Adding online
+compaction (collapsing superseded writes within a log) is possible
+future work.
+
+\paragraph{Read amplification.}
+Data resolution walks the branch chain from child to parent,
+checking each level's delta index.  For deep nesting (depth~$d$),
+the worst-case lookup cost is $O(d \cdot \log n)$ where $n$ is the
+number of entries per branch index.  In practice, speculation trees
+are typically shallow (2--4 levels), keeping this overhead modest.
+If deep chains prove problematic, periodic index merging (flattening
+a child's index into its parent) could reduce the lookup depth.
+
+\paragraph{Coordination lock recovery.}
+The cross-kernel coordination lock is a simple test-and-set spinlock
+with no timeout or lease mechanism (Section~\ref{sec:impl}).  If a
+kernel crashes while holding the lock, all other kernels sharing the
+DAX region will spin indefinitely.  Potential mitigations include a
+lease-based lock with timestamps (a holder writes a timestamp; waiters
+forcibly break the lock after a timeout) or a watchdog that detects a
+stale holder.  The current design trades robustness for simplicity,
+which is acceptable when all kernel instances are co-managed (e.g.,
+virtual machines under the same hypervisor) but would need
+strengthening for production multi-host deployments.
+
+\paragraph{POSIX compliance gaps.}
+\daxfs does not support hard link creation in branches (hard links
+from the base image are preserved), \texttt{mknod} (device nodes,
+FIFOs, and sockets), or extended attributes.  File names are limited
+to 255 characters and the branch table supports at most 256 entries.
+These restrictions reflect the target workloads (container rootfs,
+speculative execution) where these features are rarely needed.
+
+\paragraph{Crash durability.}
+As noted in Section~\ref{sec:format}, crash recovery of delta state
+depends on the underlying memory.  On persistent memory with ADR,
+stores to the DAX region survive power failure and the append-only
+log structure allows recovery by discarding any partial tail entry.
+On volatile backing (DMA-buf on GPU memory or non-persistent CXL
+memory), a crash loses all delta state; only the base image (if
+stored externally) is recoverable.  \daxfs does not currently issue
+explicit \texttt{clflush}/\texttt{clwb} instructions after delta
+writes, relying instead on platform-level persistence guarantees
+(ADR).  Adding optional cache-line flush support for platforms
+without ADR is future work.
+
+\paragraph{Single-writer per branch.}
+Each branch supports concurrent readers but only a single writer
+(protected by a per-branch kernel spinlock).  Multiple processes can
+write to the same branch from the same kernel instance (serialized by
+the lock), but cross-kernel concurrent writes to the same branch are
+not supported.  This is by design: each branch represents one agent's
+speculative exploration, and agents are expected to write to their own
+branches.
+
+\paragraph{Evaluation.}
+This paper presents the design and implementation of \daxfs but does
+not include a quantitative performance evaluation.  Key metrics to
+measure in future work include: branch creation and commit latency,
+read/write throughput compared with NOVA, PMFS, and OverlayFS,
+scalability with branch depth and sibling count, and cross-kernel
+coordination overhead under contention.  We plan to evaluate on
+both Intel Optane persistent memory and emulated CXL memory.
 
 %-------------------------------------------------------------------------------
 \section{Conclusion}
