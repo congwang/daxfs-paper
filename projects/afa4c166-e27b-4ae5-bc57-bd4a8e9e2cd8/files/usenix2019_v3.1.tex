@@ -783,18 +783,21 @@ struct daxfs_global_coord {
 \end{lstlisting}
 
 The spinlock uses \texttt{cmpxchg} directly on the DAX memory address.
-Because DAX memory is cache-coherent across all CPUs (and across CXL
-hosts), this provides mutual exclusion without any kernel-to-kernel
-communication.  Each mount caches the last-seen commit sequence; if
-the sequence advances unexpectedly, the mount checks whether its
-branch has been invalidated.
+Within a single node, DAX memory is cache-coherent across all CPUs, so
+the atomic operates with normal SMP semantics.  For CXL-attached
+shared memory, CXL~3.0 provides hardware coherence mechanisms
+(back-invalidation and snoop filters) that extend this model across
+hosts, though the coherence guarantees depend on the specific hardware
+and fabric configuration.  Each mount caches the last-seen commit
+sequence; if the sequence advances unexpectedly, the mount checks
+whether its branch has been invalidated.
 
 This approach is fundamentally different from the distributed locking
 used by cluster filesystems like GFS2 or OCFS2, which require a
 separate lock manager service.  Because the lock state resides
 directly in the shared memory region, \daxfs coordination works across
-kernel instances, across CXL-connected hosts, and even across virtual
-machines sharing a physical memory region, with no additional
+kernel instances within a node and, where CXL hardware coherence is
+available, across CXL-connected hosts, with no additional
 infrastructure.
 
 \subsection{Shared Page Cache}
@@ -1007,8 +1010,8 @@ eliminates all intermediate metadata structures between the
 application and the data, going beyond even existing DAX-aware
 filesystems like NOVA and PMFS; and (3)~cross-kernel coordination via
 \texttt{cmpxchg} on shared DAX memory, which eliminates distributed
-locking protocols entirely and enables multi-kernel, multi-host
-filesystem sharing with no additional infrastructure.
+locking protocols for co-located kernels and, where CXL hardware
+coherence is available, extends to multi-host sharing.
 
 \daxfs demonstrates that memory-native filesystem design, treating
 memory as the storage medium rather than a cache, enables
