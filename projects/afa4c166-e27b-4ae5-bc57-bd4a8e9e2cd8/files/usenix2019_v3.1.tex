@@ -917,14 +917,49 @@ not supported.  This is by design: each branch represents one agent's
 speculative exploration, and agents are expected to write to their own
 branches.
 
-\paragraph{Evaluation.}
-This paper presents the design and implementation of \daxfs but does
-not include a quantitative performance evaluation.  Key metrics to
-measure in future work include: branch creation and commit latency,
-read/write throughput compared with NOVA, PMFS, and OverlayFS,
-scalability with branch depth and sibling count, and cross-kernel
-coordination overhead under contention.  We plan to evaluate on
-both Intel Optane persistent memory and emulated CXL memory.
+%-------------------------------------------------------------------------------
+\section{Evaluation}
+\label{sec:evaluation}
+%-------------------------------------------------------------------------------
+
+We evaluate \daxfs along four axes: single-thread read and write
+throughput, branch operation latency, scalability with increasing
+branch depth and sibling count, and cross-kernel coordination overhead.
+All experiments use \textbf{TODO: describe hardware platform, memory
+type (Optane / emulated CXL / DRAM), kernel version}.
+
+\subsection{Experimental Setup}
+
+\textbf{TODO: Hardware configuration, memory device, kernel version,
+comparison baselines (NOVA, PMFS, EROFS+OverlayFS, tmpfs), workload
+generator.}
+
+\subsection{Read and Write Throughput}
+
+\textbf{TODO: Sequential and random read/write microbenchmarks on the
+base image and on a branch.  Compare with NOVA, PMFS, and
+tmpfs.  Show that zero-copy DAX reads achieve near-DRAM bandwidth and
+that delta-log writes scale linearly with mutation size.}
+
+\subsection{Branch Operation Latency}
+
+\textbf{TODO: Measure branch creation, commit, and abort latency as a
+function of delta log size.  Show $O(\text{deltas})$ commit cost.
+Compare branch creation with Btrfs snapshot creation and OverlayFS
+mount setup.}
+
+\subsection{Scalability}
+
+\textbf{TODO: Vary branch depth (N-level nesting) and sibling count.
+Measure read latency as a function of depth (overlay chain walk) and
+commit latency as a function of sibling count (invalidation cost).}
+
+\subsection{Cross-Kernel Coordination}
+
+\textbf{TODO: Two or more kernels (VMs or bare-metal) sharing a DAX
+region.  Measure contention on branch table cmpxchg under concurrent
+branch creation and commit.  Compare with NFS/Ceph baseline if
+applicable.}
 
 %-------------------------------------------------------------------------------
 \section{Conclusion}
