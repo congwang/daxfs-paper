@@ -151,8 +151,8 @@ most relevant to our target workloads.
 \toprule
 \textbf{Property} & \textbf{\daxfs} & \textbf{NOVA} & \textbf{PMFS} & \textbf{Btrfs} & \textbf{NILFS2} & \textbf{EROFS} & \textbf{OverlayFS} \\
 \midrule
-Zero-copy DAX reads        & \cmark & Partial & Partial & \xmark & \xmark & \xmark & \xmark \\
-No page cache overhead     & \cmark & Partial & Partial & \xmark & \xmark & \xmark & \xmark \\
+Zero-copy DAX reads        & \cmark & Partial & Partial & \xmark & \xmark & Partial & \xmark \\
+No page cache overhead     & \cmark & \cmark & \cmark & \xmark & \xmark & \cmark & \xmark \\
 Hierarchical branching     & \cmark & \xmark & \xmark & Limited & \xmark & \xmark & 1-level \\
 N-level speculation        & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark & \xmark \\
 Atomic commit/abort        & \cmark & \xmark & \xmark & \xmark & \xmark & N/A & \xmark \\
@@ -162,11 +162,13 @@ Flat validatable format    & \cmark & \xmark & \xmark & \xmark & \xmark & \cmark
 \bottomrule
 \end{tabular}
 \caption{Feature comparison of \daxfs with existing filesystems.
-  ``Partial'' indicates DAX support exists but the filesystem still
-  maintains significant metadata structures.  ``Limited'' indicates
-  Btrfs supports snapshots but lacks commit/abort semantics and
-  requires $O(\text{tree})$ merging.  ``1-level'' indicates OverlayFS
-  supports a single upper layer over a read-only lower layer.}
+  For NOVA and PMFS, ``Partial'' indicates DAX support exists but the
+  filesystem still maintains significant metadata structures; for
+  EROFS, ``Partial'' indicates DAX reads are supported but the
+  filesystem is read-only.  ``Limited'' indicates Btrfs supports
+  snapshots but lacks commit/abort semantics and requires
+  $O(\text{tree})$ merging.  ``1-level'' indicates OverlayFS supports
+  a single upper layer over a read-only lower layer.}
 \label{tab:feature-matrix}
 \end{table*}
 
