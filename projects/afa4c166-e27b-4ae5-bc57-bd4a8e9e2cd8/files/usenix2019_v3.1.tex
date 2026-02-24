@@ -214,7 +214,7 @@ shared filesystem image in pooled CXL memory allows multiple hosts to
 access common data without network transfers.  The filesystem must
 support concurrent readers with independent write branches and must
 coordinate using only hardware atomics on the shared memory region.
-Traditional network filesystems (NFS, distributed Btrfs) add
+Traditional network filesystems (NFS, Ceph) add
 unnecessary protocol layers when the memory is already directly
 accessible.
 
@@ -222,8 +222,9 @@ accessible.
 Container deployments share a read-only base image (e.g., a Linux
 distribution) across hundreds of containers~\cite{merkel14:docker,harter11:aufs}.
 Current approaches
-(tmpfs, OverlayFS) either duplicate the image per container or impose
-page cache overhead.  \daxfs provides a single shared base image with
+(tmpfs, OverlayFS, EROFS~\cite{gao20:erofs}) either duplicate the
+image per container, impose page cache overhead, or provide no
+mutation path.  \daxfs provides a single shared base image with
 lightweight per-container branches that add only the delta of each
 container's mutations, with no page cache copies and no per-container
 memory duplication.
