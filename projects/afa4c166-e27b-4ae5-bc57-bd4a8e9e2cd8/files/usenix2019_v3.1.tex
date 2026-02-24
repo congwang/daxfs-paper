@@ -246,7 +246,7 @@ and cross-kernel coordination in a single design.
 tmpfs/ramfs & Per-instance copies; $N$ containers = $N$ images in memory \\
 OverlayFS & Single-level overlay only; copy-up on write; page cache overhead \\
 EROFS & Read-only; no branching; fscache is per-kernel so sharing requires $N$ cache copies \\
-famfs~\cite{groves24:famfs} & Per-file allocation; no self-contained images; no branching \\
+Famfs~\cite{groves24:Famfs} & Per-file allocation; no self-contained images; no branching \\
 cramfs & Block I/O plus page cache; no direct memory mapping \\
 Btrfs & COW B-tree snapshots require $O(\text{tree})$ merge; no commit/abort semantics \\
 NILFS2 & Linear checkpoints only; cannot branch independently \\
@@ -807,10 +807,10 @@ flexibility for a strictly simpler data path and the ability to
 support speculative branching.  None of these filesystems provide any
 branching or snapshot primitive.
 
-The closest existing system is famfs~\cite{groves24:famfs}, a
+The closest existing system is Famfs~\cite{groves24:Famfs}, a
 special-purpose fs-dax filesystem designed for fabric-attached memory
 that, like \daxfs, supports multiple hosts mounting the same DAX
-memory region simultaneously.  However, famfs and \daxfs differ in
+memory region simultaneously.  However, Famfs and \daxfs differ in
 their fundamental abstractions.  Famfs exposes shared memory as
 individual DAX files with per-file extent lists managed from user
 space; it provides no filesystem image format, no branching, and no
@@ -1024,9 +1024,9 @@ X.~Gao, M.~Dong, S.~Miao, W.~Du, C.~Yu, and H.~Chen.
 \newblock In {\em USENIX Annual Technical Conference (ATC)}, pages 149--162,
   2019.
 
-\bibitem{groves24:famfs}
+\bibitem{groves24:Famfs}
 J.~Groves.
-\newblock Introduce the famfs shared-memory file system.
+\newblock Introduce the Famfs shared-memory file system.
 \newblock Linux kernel patch series (RFC~v2), April 2024.
 \newblock \url{https://lwn.net/Articles/983105/}.
 
