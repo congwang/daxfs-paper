@@ -229,36 +229,8 @@ lightweight per-container branches that add only the delta of each
 container's mutations, with no page cache copies and no per-container
 memory duplication.
 
-\subsection{Limitations of Existing Approaches}
-
-Table~\ref{tab:comparison} summarizes why existing approaches fall
-short for these use cases.  The fundamental gap is that no existing
-filesystem combines direct memory access, hierarchical branching,
-and cross-kernel coordination in a single design.
-
-\begin{table}[t]
-\centering
-\small
-\begin{tabular}{@{}lp{5.2cm}@{}}
-\toprule
-\textbf{Filesystem} & \textbf{Limitation} \\
-\midrule
-tmpfs/ramfs & Per-instance copies; $N$ containers = $N$ images in memory \\
-OverlayFS & Single-level overlay only; copy-up on write; page cache overhead \\
-EROFS & Read-only; no branching; fscache is per-kernel so sharing requires $N$ cache copies \\
-Famfs~\cite{groves24:Famfs} & Per-file allocation; no self-contained images; no branching \\
-cramfs & Block I/O plus page cache; no direct memory mapping \\
-Btrfs & COW B-tree snapshots require $O(\text{tree})$ merge; no commit/abort semantics \\
-NILFS2 & Linear checkpoints only; cannot branch independently \\
-NOVA/PMFS & Complex metadata (B-trees, journals); no branching primitives \\
-\bottomrule
-\end{tabular}
-\caption{Existing filesystem limitations for memory-native speculative
-  branching workloads.  Each system lacks one or more of the core
-  properties \daxfs provides: zero-copy DAX reads, hierarchical
-  branching, and cross-kernel coordination.}
-\label{tab:comparison}
-\end{table}
+No existing filesystem combines direct memory access, hierarchical
+branching, and cross-kernel coordination in a single design.
 
 %-------------------------------------------------------------------------------
 \section{Design}
