@@ -49,26 +49,28 @@ Multikernel Technologies, Inc., USA\\
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-We present \daxfs, a filesystem designed for byte-addressable
-memory (persistent memory, CXL-attached memory, or DMA buffers) that
-combines zero-copy direct access with a novel speculative branching
-model.  \daxfs operates entirely through CPU load/store instructions on
-DAX-mapped memory, eliminating the page cache, buffer heads, and data
-copies that burden traditional filesystems.  Its core abstraction is a
-read-only base image overlaid with \emph{delta-log branches}: each
-branch records copy-on-write mutations as an append-only log that can
-be committed to the root or discarded atomically.  Branches nest to
-arbitrary depth, enabling N-level speculative execution where multiple
-agents explore divergent paths and a single winner commits while all
-siblings are invalidated.  Cross-kernel coordination uses hardware
-\texttt{cmpxchg} on shared DAX memory, requiring no distributed
-locking.  To our knowledge, \daxfs is the first filesystem to provide
-hierarchical speculative branching with single-winner commit semantics
-as a native primitive.  We describe the design, on-disk format,
-branching semantics, and implementation of a working Linux kernel
-module, and discuss target use cases including AI agent speculation,
-multikernel shared filesystems, CXL memory pooling, and container
-rootfs sharing.
+Byte-addressable memory (persistent memory, CXL-attached DRAM, and
+DMA buffers) lets CPUs touch storage with plain load/store
+instructions, yet every existing filesystem still interposes a page
+cache, metadata journals, or both, squandering the medium's
+fundamental advantage.  We introduce \daxfs, a filesystem that
+eliminates these layers entirely.  \daxfs maps a read-only base image
+directly into the address space and records mutations as append-only
+\emph{delta-log branches} that can be committed or discarded
+atomically.  Because branches nest to arbitrary depth, \daxfs supports
+N-level speculative execution: multiple agents explore divergent paths
+on a shared environment, a single winner commits, and all siblings are
+invalidated in one atomic step.  Cross-kernel coordination relies on
+hardware \texttt{cmpxchg} over shared DAX memory, requiring no
+distributed locking.  These properties target two primary scenarios:
+multikernel architectures that need a shared filesystem across
+independent OS instances, and AI agent sandboxing within such
+architectures, where each agent speculatively mutates a branch and
+only the winning result is committed.  To our knowledge, \daxfs is the
+first filesystem to offer hierarchical speculative branching with
+single-winner commit semantics as a native primitive.  We describe the
+design, on-disk format, branching model, and implementation as a Linux
+kernel module.
 \end{abstract}
 
 %-------------------------------------------------------------------------------
@@ -78,48 +80,45 @@ rootfs sharing.
 
 Byte-addressable persistent memory~\cite{intel17:pmem,izraelevitz19:pmem}
 and CXL-attached memory~\cite{cxl22:spec} have introduced a
-fundamentally new tier in the memory hierarchy: storage-class media that
-is directly accessible via CPU load and store instructions.  The Linux
-DAX (Direct Access) subsystem~\cite{linuxdax} allows filesystems to
-map this memory into user address spaces without copying data through
-the page cache, offering the latency of DRAM with the capacity and
-sharing properties of storage.
+fundamentally new tier in the memory hierarchy: storage-class media
+directly accessible via CPU load and store instructions.  The Linux
+DAX (Direct Access) subsystem~\cite{linuxdax} maps this memory into
+user address spaces without copying through the page cache, offering
+DRAM latency with the capacity and sharing properties of storage.
 
-Despite this hardware capability, existing filesystems fail to exploit
-it fully.  General-purpose DAX-aware filesystems like
-NOVA~\cite{xu16:nova} and PMFS~\cite{dulloor14:pmfs} are designed for
-persistent memory as a \emph{storage device} and retain significant
-software overhead: metadata journaling, complex allocation, and
-multi-level indexing structures.  Read-only filesystems like
-EROFS~\cite{gao20:erofs} achieve simplicity but offer no mutation
-path.  Union filesystems like OverlayFS~\cite{vangoor17:overlayfs}
-provide copy-on-write layering but require page-cache-mediated I/O
-and support only a single overlay level.  Log-structured filesystems
-like NILFS2~\cite{konishi06:nilfs} and F2FS~\cite{lee11:f2fs} provide
-snapshotting, but their checkpoints are strictly linear and cannot
-branch into independent parallel paths.  COW-based filesystems like
+Existing filesystems fail to exploit this capability fully.
+DAX-aware filesystems like NOVA~\cite{xu16:nova} and
+PMFS~\cite{dulloor14:pmfs} treat persistent memory as a
+\emph{storage device} and retain significant software overhead:
+metadata journaling, complex allocation, and multi-level indexing.
+Read-only filesystems like EROFS~\cite{gao20:erofs} achieve simplicity
+but offer no mutation path.  Union filesystems like
+OverlayFS~\cite{vangoor17:overlayfs} provide copy-on-write layering
+but require page-cache-mediated I/O and support only a single overlay
+level.  Log-structured filesystems like NILFS2~\cite{konishi06:nilfs}
+and F2FS~\cite{lee11:f2fs} provide snapshotting, but their
+checkpoints are strictly linear and cannot branch into independent
+parallel paths.  COW-based filesystems like
 Btrfs~\cite{rodeh13:btrfs} offer subvolume snapshots, but merging
 independent subvolumes requires expensive tree diffing, and no
-existing filesystem provides built-in ``discard all siblings on
-commit'' semantics needed for speculative execution.
+existing filesystem provides the ``discard all siblings on commit''
+semantics that speculative execution demands.
 
-Meanwhile, emerging workloads demand a new combination of properties
-that no existing filesystem offers.
-AI agent systems perform \emph{speculative execution}: multiple agents
-explore different solution paths on a shared environment, and only the
-winning path is committed while losers are
-discarded~\cite{wang26:branchfs,wei23:llmspec}.  Multikernel architectures run
-independent OS instances on shared
-hardware~\cite{baumann09:multikernel}, needing a common filesystem
+At the same time, emerging workloads need precisely this combination of
+properties.  AI agent systems perform \emph{speculative execution}:
+multiple agents explore divergent solution paths on a shared
+environment, and only the winner
+commits~\cite{wang26:branchfs,wei23:llmspec}.  Multikernel
+architectures run independent OS instances on shared
+hardware~\cite{baumann09:multikernel}, requiring a common filesystem
 without distributed locking.  Container deployments share a read-only
 base image across hundreds of instances~\cite{merkel14:docker}, where
 per-container copies waste memory.
 
 We present \daxfs, a filesystem designed from the ground up for
-byte-addressable memory.  Unlike prior persistent memory filesystems
-that adapt block-device abstractions to byte-addressable media, \daxfs
-treats memory as the primary storage medium and introduces three key
-innovations:
+byte-addressable memory.  Rather than adapting block-device
+abstractions to byte-addressable media, \daxfs treats memory as the
+primary storage medium and introduces three key innovations:
 
 \begin{enumerate}
 \item \textbf{Memory-native zero-copy access.}  File reads resolve to
