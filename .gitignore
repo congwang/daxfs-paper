@@ -1,0 +1,19 @@
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# PDF output
+*.pdf
+
+# texlyre cache
+.texlyre_cache/
