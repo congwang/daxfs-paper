@@ -13,4 +13,5 @@ $(PDF): $(TEX_DIR)/$(TEX_FILE).tex $(TEX_DIR)/usenix-2020-09.sty
 clean:
 	cd $(TEX_DIR) && rm -f $(TEX_FILE).pdf $(TEX_FILE).aux $(TEX_FILE).log \
 		$(TEX_FILE).out $(TEX_FILE).toc $(TEX_FILE).bbl $(TEX_FILE).blg \
-		$(TEX_FILE).nav $(TEX_FILE).snm $(TEX_FILE).vrb
+		$(TEX_FILE).nav $(TEX_FILE).snm $(TEX_FILE).vrb $(TEX_FILE).fls \
+		$(TEX_FILE).synctex.gz $(TEX_FILE).fdb_latexmk
