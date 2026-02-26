@@ -1,5 +1,5 @@
-TEX_DIR = projects/afa4c166-e27b-4ae5-bc57-bd4a8e9e2cd8/files
-TEX_FILE = usenix2019_v3.1
+TEX_DIR ?= projects/afa4c166-e27b-4ae5-bc57-bd4a8e9e2cd8/files
+TEX_FILE ?= usenix2019_v3.1
 PDF = $(TEX_DIR)/$(TEX_FILE).pdf
 
 .PHONY: all clean
