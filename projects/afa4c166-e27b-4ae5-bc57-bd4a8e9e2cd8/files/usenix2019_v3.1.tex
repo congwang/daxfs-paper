@@ -727,15 +727,15 @@ each measurement.  Results are averaged over 5 runs.
 
 \subsection{Sequential Read Throughput}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{bench/results/read_throughput.png}
-\caption{Sequential read throughput comparison.  Left: 16\,MB file
-  (1\,MB block size).  Right: 1\,MB file (4\,KB block size).
-  \daxfs achieves $4.1\times$ higher throughput than ext4-dax on
-  large files and matches tmpfs on small files.}
-\label{fig:read_throughput}
-\end{figure}
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{bench/results/read_throughput.png}
+% \caption{Sequential read throughput comparison.  Left: 16\,MB file
+%   (1\,MB block size).  Right: 1\,MB file (4\,KB block size).
+%   \daxfs achieves $4.1\times$ higher throughput than ext4-dax on
+%   large files and matches tmpfs on small files.}
+% \label{fig:read_throughput}
+% \end{figure}
 
 Figure~\ref{fig:read_throughput} shows sequential read throughput for
 two file sizes.
@@ -758,14 +758,14 @@ metadata overhead, achieving DRAM-equivalent throughput even on PMem.
 
 \subsection{Read Latency}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{bench/results/read_latency.png}
-\caption{Sequential read latency (lower is better).  \daxfs achieves
-  $4\times$ lower latency than ext4-dax on large files and
-  $15\times$ lower than NOVA.}
-\label{fig:read_latency}
-\end{figure}
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{bench/results/read_latency.png}
+% \caption{Sequential read latency (lower is better).  \daxfs achieves
+%   $4\times$ lower latency than ext4-dax on large files and
+%   $15\times$ lower than NOVA.}
+% \label{fig:read_latency}
+% \end{figure}
 
 Figure~\ref{fig:read_latency} shows read latency for the same
 workloads.  \daxfs completes a 16\,MB sequential read in 153.6\,ms
@@ -782,13 +782,13 @@ iomap overhead on every \texttt{read\_iter} call.
 
 \subsection{Metadata Operations}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{bench/results/metadata.png}
-\caption{Metadata operation latency on 1,000 files (lower is better).
-  Left: \texttt{readdir}.  Right: \texttt{stat}.}
-\label{fig:metadata}
-\end{figure}
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{bench/results/metadata.png}
+% \caption{Metadata operation latency on 1,000 files (lower is better).
+%   Left: \texttt{readdir}.  Right: \texttt{stat}.}
+% \label{fig:metadata}
+% \end{figure}
 
 Figure~\ref{fig:metadata} shows metadata operation latency on a
 directory containing 1,000 files.
@@ -840,14 +840,14 @@ ext4-dax's HTree directory index beats \daxfs on readdir.  Critically,
 multi-host writes, shared caching, and lock-free writes---capabilities
 that none of the baselines offer.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{bench/results/summary.png}
-\caption{Normalized performance summary across all benchmarks.
-  \daxfs matches or exceeds all DAX baselines on throughput and
-  metadata operations, approaching tmpfs (DRAM) on small files.}
-\label{fig:summary}
-\end{figure}
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{bench/results/summary.png}
+% \caption{Normalized performance summary across all benchmarks.
+%   \daxfs matches or exceeds all DAX baselines on throughput and
+%   metadata operations, approaching tmpfs (DRAM) on small files.}
+% \label{fig:summary}
+% \end{figure}
 
 Figure~\ref{fig:summary} shows the normalized comparison.  On
 throughput benchmarks, \daxfs closes the gap to DRAM-backed tmpfs
