@@ -25,7 +25,11 @@
 % mathptmx (Times) removed due to corrupted utmb8a.pfb and cmsy10.pfb
 % in the TeXlyre build environment.
 \usepackage{lmodern}
-\renewcommand{\ttdefault}{cmtt}  % use CM monospace (lmtt tfm files missing)
+% Redeclare lmtt/m/n to skip missing rm-lmtt8.tfm (use rm-lmtt9 for small sizes)
+\DeclareFontShape{OT1}{lmtt}{m}{n}
+     {<-9.5> rm-lmtt9
+      <9.5-11> rm-lmtt10    <11->     rm-lmtt12
+      }{}
 
 \usepackage[utf8]{inputenc}
 
