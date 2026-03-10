@@ -218,26 +218,14 @@ Existing DAX filesystems assume a single-host, single-writer model.
 ext4-dax uses journaling with per-host transaction IDs; NOVA uses
 per-CPU log structures.  Neither can handle concurrent writers on
 different hosts accessing the same metadata through shared memory.
-FamFS~\cite{groves24:Famfs} is the closest system to \daxfs: it
+FamFS~\cite{groves24:Famfs} is the closest existing system: it
 targets CXL shared memory and supports multiple hosts mounting the
-same DAX region.  However, FamFS and \daxfs differ fundamentally in
-architecture.  FamFS uses a single-master log-replay model: one
-designated master host pre-allocates files as individually mapped
-extents and writes a metadata log that client hosts replay.  Clients
-cannot create files, append data, truncate, or delete; they are
-limited to reading pre-allocated content, and if writable access is
-granted, users must manage coherency themselves.  There is no shared
-cache; each host manages its own access independently.  FamFS does
-not use CXL atomics (\texttt{cmpxchg}) for coordination, relying
-instead on the single-writer log for metadata consistency.  There is
-no layering concept (base image plus overlay), no self-contained
-image format, and no internal allocator; file extents are managed
-entirely by the master.
-
-By contrast, \daxfs uses a peer-to-peer coordination model where
-any host can concurrently create, write, and delete files through
-CAS-based atomic operations on shared memory, with a cooperative
-page cache that is automatically visible to all hosts.
+same DAX region.  However, FamFS uses a single-master log-replay
+model where one designated host pre-allocates files and clients
+replay its metadata log.  Clients cannot create, append, truncate,
+or delete files, and there is no shared cache or CXL-atomic
+coordination.  We provide a detailed architectural comparison in
+\S\ref{sec:related}.
 
 \paragraph{Network Protocol Overhead.}
 Distributed filesystems (NFS, CephFS, Lustre) could serve
@@ -547,15 +535,13 @@ Lookup operations use \texttt{smp\_rmb} after reading
 On x86, these compile to compiler barriers (x86 provides TSO
 ordering); on ARM64, they emit fence instructions.
 
-%-------------------------------------------------------------------------------
-\section{On-Disk Format}
+\subsection{On-Disk Format}
 \label{sec:format}
-%-------------------------------------------------------------------------------
 
 \daxfs uses a deliberately simple flat format (version~7) designed for
 safe handling of untrusted images and efficient direct access.
 
-\subsection{Region Layout}
+\subsubsection{Region Layout}
 
 The memory region is divided into up to four areas, laid out
 sequentially:
@@ -580,7 +566,7 @@ sequentially:
   (\texttt{slot\_count $\times$ 4\,KB} pages).
 \end{description}
 
-\subsection{Flat Directory Format}
+\subsubsection{Flat Directory Format}
 
 Directories store fixed-size entries of 271 bytes each (the
 \texttt{daxfs\_dirent} structure), containing a name length, an inode
@@ -605,7 +591,7 @@ linked lists in tmpfs):
   in a single pass at mount time without complex tree traversal.
 \end{itemize}
 
-\subsection{Overlay Pool Entries}
+\subsubsection{Overlay Pool Entries}
 
 Pool entries are typed and variable-size:
 
@@ -879,13 +865,21 @@ provides the lowest stat latency of any filesystem tested.
 \subsection{Multi-Host Evaluation}
 \label{sec:multihost}
 
-\todo{Multi-host CXL evaluation pending hardware availability.  We
-plan to evaluate on a dual-host CXL~3.0 switch fabric with shared
+Multi-host CXL~3.0 evaluation is pending hardware availability.
+All \daxfs coordination primitives (\texttt{cmpxchg} on overlay
+buckets, page cache slots, and pool free lists) are designed for
+cross-host atomicity and have been validated in single-host
+concurrent tests.  The Optane PMem evaluation above exercises the
+same \texttt{memremap}-based code path that CXL memory devices use,
+so we expect the single-host performance characteristics to carry
+over.
+
+We plan to evaluate on a dual-host CXL~3.0 switch fabric with shared
 memory, measuring: (1)~concurrent write throughput scaling with host
 count, (2)~shared page cache hit rates under multi-host access
 patterns, (3)~overlay hash table contention under concurrent inserts
 from multiple hosts, and (4)~end-to-end LLM inference cold-start
-latency with shared model weights vs.\ per-host loading.}
+latency with shared model weights versus per-host loading.
 
 %-------------------------------------------------------------------------------
 \section{Related Work}
