@@ -136,8 +136,9 @@ that CXL shared memory should eliminate.  Overlay-based solutions
 (overlayfs, erofs+fscache) cannot coordinate across hosts and perform
 copy-up operations that negate the sharing benefit.
 FamFS~\cite{groves24:Famfs} targets CXL shared memory but uses a
-single-master log-replay model that precludes concurrent writes and
-provides no shared caching.
+single-master log-replay model that precludes concurrent writes from
+client hosts, provides no shared caching, and lacks file mutation
+operations (append, truncate, delete) on clients.
 
 We present \daxfs, a Linux kernel filesystem module designed from the
 ground up for CXL shared memory.  Rather than adapting block-device
@@ -174,9 +175,12 @@ medium and introduces three key innovations:
 Zero-copy DAX reads          & \cmark & Partial & Partial & \cmark & \cmark & Partial & \xmark \\
 No page cache overhead       & \cmark & \cmark  & \cmark  & \cmark & \cmark & \cmark  & \xmark \\
 Multi-host concurrent writes & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
-Lock-free data path          & \cmark & \xmark  & \xmark  & N/A    & \xmark & N/A     & \xmark \\
+Lock-free data path          & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
 Shared cache across hosts    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-Cross-host coordination      & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
+CXL atomics for coordination & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
+Layered storage (base+overlay) & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark  & \cmark \\
+File create/append/delete    & \cmark & \cmark  & \cmark  & \xmark & \cmark & \xmark  & \cmark \\
+Self-contained image         & \cmark & \xmark  & \xmark  & \xmark & \xmark & \cmark  & N/A    \\
 Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \cmark  & N/A    \\
 \bottomrule
 \end{tabular}
@@ -184,7 +188,9 @@ Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \c
   ``Partial'' indicates DAX support exists but the filesystem still
   maintains significant metadata structures (NOVA, PMFS) or is
   read-only (EROFS).  FamFS supports multi-host mount but uses
-  single-master metadata with no concurrent writes or shared caching.}
+  single-master metadata with no concurrent writes, no shared caching,
+  and no file mutation (create, append, truncate, or delete) from
+  client hosts.}
 \label{tab:feature-matrix}
 \end{table*}
 
@@ -212,11 +218,26 @@ Existing DAX filesystems assume a single-host, single-writer model.
 ext4-dax uses journaling with per-host transaction IDs; NOVA uses
 per-CPU log structures.  Neither can handle concurrent writers on
 different hosts accessing the same metadata through shared memory.
-FamFS~\cite{groves24:Famfs} targets CXL shared memory but uses a
-log-replay architecture where a single master host creates files and
-writes a metadata log that client hosts replay.  Clients cannot create
-files, append data, or modify metadata.  There is no shared
-cache---each host manages its own access.
+FamFS~\cite{groves24:Famfs} is the closest system to \daxfs: it
+targets CXL shared memory and supports multiple hosts mounting the
+same DAX region.  However, FamFS and \daxfs differ fundamentally in
+architecture.  FamFS uses a single-master log-replay model: one
+designated master host pre-allocates files as individually mapped
+extents and writes a metadata log that client hosts replay.  Clients
+cannot create files, append data, truncate, or delete---they are
+limited to reading pre-allocated content, and if writable access is
+granted, users must manage coherency themselves.  There is no shared
+cache; each host manages its own access independently.  FamFS does
+not use CXL atomics (\texttt{cmpxchg}) for coordination, relying
+instead on the single-writer log for metadata consistency.  There is
+no layering concept (base image plus overlay), no self-contained
+image format, and no internal allocator---file extents are managed
+entirely by the master.
+
+By contrast, \daxfs uses a peer-to-peer coordination model where
+any host can concurrently create, write, and delete files through
+CAS-based atomic operations on shared memory, with a cooperative
+page cache that is automatically visible to all hosts.
 
 \paragraph{Network Protocol Overhead.}
 Distributed filesystems (NFS, CephFS, Lustre) could serve
@@ -896,14 +917,43 @@ applications.  TPP~\cite{maruf23:tpp} provides transparent page
 placement across DRAM and CXL memory tiers.  These systems focus on
 memory management rather than filesystem semantics.
 
-FamFS~\cite{groves24:Famfs} provides a filesystem interface to CXL
-shared memory, supporting multiple hosts mounting the same DAX region.
-However, FamFS uses a single-master metadata model: one host creates
-files and writes a metadata log that other hosts replay.  Clients
-cannot create files, append data, or modify metadata independently.
-There is no shared cache.  \daxfs provides fully concurrent multi-host
-writes via the CAS-based overlay and a cooperative shared page cache
-that serves all hosts.
+FamFS~\cite{groves24:Famfs} is architecturally the closest prior work
+to \daxfs.  Both provide a filesystem interface to CXL shared memory,
+supporting multiple hosts mounting the same DAX region.  However, the
+two systems make fundamentally different design choices, summarized in
+Table~\ref{tab:famfs-comparison}.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & \textbf{\daxfs} & \textbf{FamFS} \\
+\midrule
+Coordination    & Peer-to-peer \texttt{cmpxchg} & Single master log \\
+Writes          & Any host, lock-free CAS        & Master only \\
+Shared cache    & Cooperative pcache             & None \\
+Allocation      & Internal bump allocator        & Master-managed extents \\
+File ops        & Create/read/write/delete       & Pre-allocate only \\
+Image model     & Self-contained layered image   & Individual mapped extents \\
+Layered storage & Base image + COW overlay       & None \\
+CXL atomics     & Core design primitive          & Not used \\
+\bottomrule
+\end{tabular}
+\caption{Architectural comparison of \daxfs and FamFS.}
+\label{tab:famfs-comparison}
+\end{table}
+
+FamFS is a thin mapping layer: a single master host pre-allocates
+files as individually mapped extents and writes a metadata log that
+client hosts replay.  Clients cannot create files, append data,
+truncate, or delete; writable access requires users to manage
+coherency externally.  FamFS does not use CXL atomics for
+coordination, has no shared cache, no layered storage, and no
+self-contained image format.  \daxfs addresses all of these gaps
+through its CAS-based overlay, cooperative page cache, and layered
+image model, enabling fully concurrent multi-host access without a
+central coordinator.
 
 \subsection{Distributed and Network Filesystems}
 
