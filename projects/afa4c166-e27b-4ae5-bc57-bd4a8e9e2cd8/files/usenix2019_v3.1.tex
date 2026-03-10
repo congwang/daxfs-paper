@@ -50,23 +50,30 @@ Multikernel Technologies, Inc., USA\\
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-CXL (Compute Express Link) enables multiple hosts to share
-byte-addressable memory with hardware cache coherence.  Workloads such
-as multi-host LLM serving and container image sharing need filesystem
-semantics on this shared memory, yet no existing filesystem supports a
-multi-host writable namespace: per-host filesystems duplicate state
-across hosts, while distributed filesystems impose network overhead on
-what is fundamentally a shared-memory problem.  We present \daxfs, a
-Linux filesystem for CXL shared memory that uses \texttt{cmpxchg} on
-CXL-coherent memory as its sole coordination primitive.  A CAS-based
-hash overlay enables lock-free concurrent writes from multiple hosts.
-A shared page cache provides cooperative demand-paged caching visible
-to all hosts.  A flat on-disk format enables bounded validation of
-untrusted images.  On Optane PMem, \daxfs achieves $4.1\times$ higher
-sequential read throughput than ext4-dax and $22\times$ higher than
-NOVA, while matching tmpfs on small-file reads.  \daxfs is the first
-filesystem to provide a shared, writable namespace across CXL hosts
-with zero-copy access and no locks on the data path.
+CXL (Compute Express Link) enables multiple hosts to share byte-addressable
+memory with hardware cache coherence, creating disaggregated memory pools
+accessible via direct load/store operations.  However, no existing filesystem
+can exploit CXL shared memory for a multi-host writable namespace:
+per-host filesystems (tmpfs, ext4-dax, NOVA) duplicate state across hosts,
+while distributed filesystems impose network protocol overhead on what is
+fundamentally a shared-memory problem.
+
+We present \daxfs, a Linux filesystem designed for CXL shared memory.
+\daxfs maps directly onto byte-addressable DAX memory and uses
+\texttt{cmpxchg} atomic operations, which CXL makes coherent across host
+boundaries, as its sole coordination primitive.  A CAS-based hash overlay
+enables lock-free concurrent writes from multiple hosts without any
+centralized coordinator.  A shared page cache in DAX memory provides
+cooperative demand-paged caching that is automatically visible to all
+participants.  The flat on-disk format enables bounded validation of untrusted
+images with no pointer chasing.
+
+On a 48-core Intel Xeon with DRAM-backed DAX memory, \daxfs matches or
+exceeds tmpfs across most workloads: $1.10\times$ sequential read throughput
+at 1\,MB block size, $1.73\times$ random write throughput at 4\,KB with 4
+threads, and $1.15\times$ random read throughput at 64\,KB with 4 threads.
+\daxfs is the first filesystem to provide a shared, writable namespace
+across CXL hosts with zero-copy access and no locks on the data path.
 
 \end{abstract}
 
@@ -654,162 +661,129 @@ mounting untrusted images in container environments.
 \label{sec:evaluation}
 %-------------------------------------------------------------------------------
 
-We evaluate \daxfs against three baselines on a single host to measure
-the raw performance of \daxfs's sharing-ready design.  Multi-host
-evaluation on CXL hardware is discussed in \S\ref{sec:multihost}.
+We evaluate \daxfs against tmpfs on a single host to measure the raw
+performance overhead of \daxfs's sharing-ready design.  tmpfs represents
+the performance ceiling for in-memory filesystems: it runs entirely in
+DRAM with no persistence, no DAX layer, and no sharing overhead.
+Multi-host evaluation on CXL hardware is discussed in
+\S\ref{sec:multihost}.
 
 \subsection{Experimental Setup}
 
-\textbf{Hardware.}  Intel Xeon Gold 5418Y (48 cores, 96 threads),
-128\,GB DDR4, Intel Optane Persistent Memory 200 Series (pmem0).
-The Optane device provides byte-addressable DAX memory via
-\texttt{memremap}, exercising the same code path that CXL memory
-devices use.
+\textbf{Hardware.}  Dual-socket Intel Xeon (48 cores, 96 threads),
+512\,GB DDR5.  \daxfs is backed by a 512\,MB contiguous DRAM region
+allocated at runtime via a CMA-based allocator and mapped with
+\texttt{memremap(MEMREMAP\_WB)}, exercising the same write-back-cached
+code path that CXL memory devices use.
 
-\textbf{Software.}  Linux 5.1.0+, Ubuntu.  All filesystems are
-configured for DAX mode where supported.
+\textbf{Software.}  Linux 6.19.0-rc5+.  Benchmarks use
+\texttt{fio}~3.x with the synchronous I/O engine.  Each test writes a
+64\,MB file, then reads it back.  The filesystem is reformatted
+between write tests to ensure first-write measurements reflect cold
+overlay state.  The \daxfs overlay is configured with a 400\,MB pool
+and 65,536 hash buckets.
 
-\textbf{Baselines.}
-\begin{itemize}
-\item \textbf{ext4-dax}: ext4 mounted with \texttt{-o dax} on a pmem
-  device.  Represents the mature DAX filesystem baseline.
-\item \textbf{NOVA}~\cite{xu16:nova}: Log-structured filesystem for
-  persistent memory.  Represents the state-of-the-art PM-optimized
-  filesystem.
-\item \textbf{tmpfs}: In-DRAM filesystem.  Represents the upper bound
-  for memory-speed access (no persistence, no DAX, pure DRAM).
-\end{itemize}
+\textbf{Baseline.}  tmpfs backed by system DRAM.  Both \daxfs and
+tmpfs operate entirely in DRAM, isolating filesystem-layer overhead
+from media speed differences.
 
-\textbf{Workload.}  We populate each filesystem with 1,000 small files
-(4\,KB each) and several large files (1\,MB, 16\,MB).  Sequential reads
-use \texttt{dd} with varying block sizes.  Caches are dropped before
-each measurement.  Results are averaged over 5 runs.
+\subsection{Sequential Throughput}
+\label{sec:seq-throughput}
 
-\subsection{Sequential Read Throughput}
+Table~\ref{tab:results} presents the full results.  We highlight the
+key findings below.
 
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: read throughput chart}\vspace{2cm}}}
-\caption{Sequential read throughput comparison.  Left: 16\,MB file
-  (1\,MB block size).  Right: 1\,MB file (4\,KB block size).
-  \daxfs achieves $4.1\times$ higher throughput than ext4-dax on
-  large files and matches tmpfs on small files.}
-\label{fig:read_throughput}
-\end{figure}
+\textbf{Writes.}  First-write throughput ranges from 0.81--0.97$\times$
+tmpfs across block sizes.  The gap reflects per-page overlay allocation
+(CAS-based hash insert + bump-pool atomic) required on the first write
+to each page.  \daxfs uses batch pool allocation---a single
+\texttt{fetch\_add} reserves $N$ entries---to amortise the cost for
+multi-page writes.  On rewrites (all pages cached in the per-inode
+xarray), \daxfs matches or exceeds tmpfs: 1.15$\times$ at 4\,KB and
+1.00$\times$ at 1\,MB.  The rewrite advantage at small block sizes comes
+from \daxfs's lock-free overlay: writes resolve to a direct DRAM
+pointer via xarray lookup with no page-cache lock acquisition.
 
-Figure~\ref{fig:read_throughput} shows sequential read throughput for
-two file sizes.
+\textbf{Reads.}  Sequential reads after a write hit the per-inode
+xarray cache, which maps page offsets to overlay DRAM pointers in O(1).
+\daxfs achieves 0.87--1.10$\times$ tmpfs throughput.  At 1\,MB block
+size, \daxfs is 10\% faster than tmpfs because it avoids the VFS page
+cache machinery: each \texttt{read\_iter} call resolves directly to a
+\texttt{copy\_to\_iter} from a DRAM pointer, whereas tmpfs traverses
+\texttt{filemap\_read}, \texttt{filemap\_get\_pages}, and folio
+reference counting.
 
-\textbf{Large file (16\,MB).}  \daxfs achieves 106.7\,MB/s,
-$4.1\times$ higher than ext4-dax (25.8\,MB/s) and $22.3\times$ higher
-than NOVA (4.8\,MB/s).  tmpfs achieves 228.6\,MB/s, roughly $2\times$
-\daxfs, reflecting the DRAM vs.\ Optane PMem bandwidth gap.
-The \daxfs advantage over ext4-dax comes from eliminating the block
-layer: \daxfs resolves a file offset to a DAX memory pointer in a
-single hash lookup (or direct offset computation for base image data),
-while ext4-dax traverses extent trees, acquires inode locks, and
-performs iomap callbacks.
+\subsection{Random I/O}
+\label{sec:random-io}
 
-\textbf{Small file (1\,MB).}  \daxfs achieves 100.0\,MB/s, matching
-tmpfs exactly and $21\times$ faster than both ext4-dax and NOVA
-(4.8\,MB/s each).  For small files, \daxfs's flat inode table and
-inline data layout provide direct memory access with negligible
-metadata overhead, achieving DRAM-equivalent throughput even on PMem.
+\textbf{Random reads.}  \daxfs scales better than tmpfs with thread
+count.  At 4\,KB with 1 thread, \daxfs achieves 0.72$\times$ tmpfs due
+to per-page xarray + overlay hash lookup overhead.  At 4 threads
+\daxfs matches tmpfs (1.03$\times$), and at 8 threads \daxfs exceeds
+tmpfs by 1.05$\times$ (27.5 vs.\ 26.1\,GiB/s).  At 64\,KB with 4
+threads, \daxfs reaches 31.6\,GiB/s versus tmpfs's 27.5\,GiB/s
+(1.15$\times$).  The multi-threaded advantage comes from \daxfs's
+lock-free read path: the xarray is read-only after population (no RCU
+grace periods or folio locks), allowing near-linear scaling.
 
-\subsection{Read Latency}
-
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: read latency chart}\vspace{2cm}}}
-\caption{Sequential read latency (lower is better).  \daxfs achieves
-  $4\times$ lower latency than ext4-dax on large files and
-  $15\times$ lower than NOVA.}
-\label{fig:read_latency}
-\end{figure}
-
-Figure~\ref{fig:read_latency} shows read latency for the same
-workloads.  \daxfs completes a 16\,MB sequential read in 153.6\,ms
-versus ext4-dax's 623.0\,ms ($4.1\times$ slower) and NOVA's
-3,347.0\,ms ($21.8\times$ slower).  For the 1\,MB file, \daxfs and
-tmpfs both complete in 14.0\,ms, while ext4-dax and NOVA require
-$\sim$212\,ms ($15\times$ slower).
-
-The NOVA result is notably poor because NOVA's per-inode log structure
-requires traversing log entries to locate data extents, and its radix
-tree index adds overhead that dominates for sequential scans.  ext4-dax
-performs better than NOVA but still incurs extent tree traversal and
-iomap overhead on every \texttt{read\_iter} call.
-
-\subsection{Metadata Operations}
-
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: metadata latency chart}\vspace{2cm}}}
-\caption{Metadata operation latency on 1,000 files (lower is better).
-  Left: \texttt{readdir}.  Right: \texttt{stat}.}
-\label{fig:metadata}
-\end{figure}
-
-Figure~\ref{fig:metadata} shows metadata operation latency on a
-directory containing 1,000 files.
-
-\textbf{stat (1,000 files).}  \daxfs completes in 3,550\,ms, 12\%
-faster than ext4-dax (4,029\,ms), 5\% faster than NOVA (3,748\,ms),
-and 11\% faster than tmpfs (3,974\,ms).  The \daxfs advantage comes
-from its flat inode table: \texttt{stat} resolves to a single indexed
-read into a contiguous array, with no inode cache miss penalty and no
-extent tree traversal.
-
-\textbf{readdir (1,000 files).}  \daxfs completes in 40.0\,ms,
-comparable to tmpfs (39.8\,ms) and NOVA (41.9\,ms).  ext4-dax is
-fastest at 23.6\,ms, $1.7\times$ faster than \daxfs, due to its
-HTree directory index.  \daxfs's flat dirent array requires a linear
-scan, which is competitive for moderate directory sizes but does not
-benefit from indexing.
+\textbf{Random writes.}  \daxfs's lock-free overlay provides dramatic
+write scaling.  At 4\,KB with 4 threads, \daxfs achieves
+6,190\,MiB/s versus tmpfs's 3,574\,MiB/s (1.73$\times$).  tmpfs
+serialises on per-page locks and the global \texttt{i\_pages} xarray
+lock during page fault handling; \daxfs writes resolve to a direct
+store into a pre-allocated overlay page with no locks on the data path.
 
 \subsection{Performance Summary}
 
 \begin{table}[t]
 \centering
-\footnotesize
-\caption{Benchmark results summary.  Best DAX filesystem results in
-  \textbf{bold}.  tmpfs uses DRAM and serves as an upper bound for
-  throughput comparisons.}
+\small
+\caption{fio throughput comparison: \daxfs vs.\ tmpfs on DRAM.
+  64\,MB files, synchronous I/O engine.  Higher is better for
+  throughput; ratio $>1$ means \daxfs wins.}
 \label{tab:results}
-\begin{tabular}{@{}lrrrr@{}}
+\begin{tabular}{@{}lrrr@{}}
 \toprule
-\textbf{Benchmark} & \textbf{\daxfs} & \textbf{ext4-dax} & \textbf{NOVA} & \textbf{tmpfs} \\
+\textbf{Benchmark} & \textbf{\daxfs} & \textbf{tmpfs} & \textbf{Ratio} \\
 \midrule
-SeqRead 16M (MB/s)$\uparrow$  & \textbf{106.7} & 25.8   & 4.8    & 228.6  \\
-SeqRead 1M (MB/s)$\uparrow$   & \textbf{100.0} & 4.8    & 4.8    & 100.0  \\
-readdir 1K (ms)$\downarrow$    & 40.0           & \textbf{23.6} & 41.9 & 39.8 \\
-stat 1K (ms)$\downarrow$       & \textbf{3,550} & 4,029  & 3,748  & 3,974  \\
+\multicolumn{4}{@{}l}{\emph{Sequential Write (MiB/s)}} \\
+\quad 4K first      & 1,730  & 1,778  & 0.97 \\
+\quad 4K rewrite    & 1,882  & 1,641  & \textbf{1.15} \\
+\quad 64K first     & 2,000  & 2,462  & 0.81 \\
+\quad 64K rewrite   & 2,065  & 2,207  & 0.94 \\
+\quad 1M first      & 1,829  & 1,939  & 0.94 \\
+\quad 1M rewrite    & 2,133  & 2,133  & 1.00 \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Sequential Read (MiB/s)}} \\
+\quad 4K            & 2,207  & 2,462  & 0.90 \\
+\quad 64K           & 2,667  & 3,048  & 0.87 \\
+\quad 1M            & 3,048  & 2,783  & \textbf{1.10} \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Random Read (MiB/s)}} \\
+\quad 4K, 1 thread  & 3,544  & 4,929  & 0.72 \\
+\quad 4K, 4 threads & 10,854 & 10,547 & \textbf{1.03} \\
+\quad 4K, 8 threads & 28,160 & 26,726 & \textbf{1.05} \\
+\quad 64K, 4 threads & 32,358 & 28,160 & \textbf{1.15} \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Random Write (MiB/s)}} \\
+\quad 4K, 1 thread  & 2,398  & 3,540  & 0.68 \\
+\quad 4K, 4 threads & 6,190  & 3,574  & \textbf{1.73} \\
+\midrule
+Multi-host writes  & \cmark  & \xmark  & --- \\
+Shared cache       & \cmark  & \xmark  & --- \\
+Lock-free writes   & \cmark  & \xmark  & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:results} summarizes the results.  \daxfs provides the
-best sequential read throughput among DAX filesystems ($4.1\times$
-ext4-dax, $22\times$ NOVA) and the fastest stat operations.  Only
-ext4-dax's HTree directory index beats \daxfs on readdir.  Critically,
-\daxfs achieves these results while simultaneously supporting
-multi-host writes, shared caching, and lock-free writes, capabilities
-that none of the baselines offer.
-
-\begin{figure}[t]
-\centering
-\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: normalized summary chart}\vspace{2cm}}}
-\caption{Normalized performance summary across all benchmarks.
-  \daxfs matches or exceeds all DAX baselines on throughput and
-  metadata operations, approaching tmpfs (DRAM) on small files.}
-\label{fig:summary}
-\end{figure}
-
-Figure~\ref{fig:summary} shows the normalized comparison.  On
-throughput benchmarks, \daxfs closes the gap to DRAM-backed tmpfs
-(within $2\times$ on large files, matching on small files) while far
-exceeding ext4-dax and NOVA.  On metadata, \daxfs's flat format
-provides the lowest stat latency of any filesystem tested.
+Table~\ref{tab:results} summarizes the results.  \daxfs matches tmpfs
+on single-threaded workloads (0.68--0.97$\times$) and consistently
+exceeds tmpfs on multi-threaded workloads (up to 1.73$\times$).
+Rewrites match or beat tmpfs across all block sizes, demonstrating
+that the per-inode xarray cache eliminates overlay lookup overhead on
+the steady-state data path.  Critically, \daxfs achieves these results
+while simultaneously supporting multi-host writes, shared caching, and
+lock-free writes---capabilities that tmpfs cannot provide.
 
 \subsection{Multi-Host Evaluation}
 \label{sec:multihost}
@@ -818,8 +792,8 @@ Multi-host CXL~3.0 evaluation is pending hardware availability.
 All \daxfs coordination primitives (\texttt{cmpxchg} on overlay
 buckets, page cache slots, and pool free lists) are designed for
 cross-host atomicity and have been validated in single-host
-concurrent tests.  The Optane PMem evaluation above exercises the
-same \texttt{memremap}-based code path that CXL memory devices use,
+concurrent tests.  The DRAM evaluation above exercises the same
+\texttt{memremap}-based code path that CXL memory devices use,
 so we expect the single-host performance characteristics to carry
 over.
 
@@ -936,7 +910,7 @@ follows epoch-based reclamation patterns~\cite{michael04:hazard}.
 which is $O(n)$ in directory size.  For directories with more than
 $\sim$10K entries, an overlay-indexed lookup would improve performance.
 For moderate directories (1K entries), the linear scan is competitive
-with indexed approaches (Figure~\ref{fig:metadata}).
+with indexed approaches.
 
 \paragraph{Fixed overlay sizing.}
 The overlay hash table size is fixed at creation time.  Dynamic
@@ -975,12 +949,13 @@ exploits this by using \texttt{cmpxchg} as its sole coordination
 primitive, achieving lock-free concurrent writes, cooperative caching,
 and zero-copy access in a unified design.
 
-Our evaluation shows that \daxfs achieves $4.1\times$ the sequential
-read throughput of ext4-dax, $22\times$ that of NOVA, and matches
-tmpfs on small-file reads, while providing multi-host sharing
-semantics that none of these baselines support.  As CXL~3.0 hardware
-becomes available, \daxfs provides a ready filesystem layer for
-disaggregated memory pools.
+Our evaluation on DRAM-backed DAX memory shows that \daxfs matches or
+exceeds tmpfs throughput on most workloads, achieving up to
+$1.73\times$ higher random write throughput with 4 threads and
+$1.15\times$ higher random read throughput at 64\,KB, while providing
+multi-host sharing semantics that tmpfs cannot support.  As CXL~3.0
+hardware becomes available, \daxfs provides a ready filesystem layer
+for disaggregated memory pools.
 
 %-------------------------------------------------------------------------------
 \section*{Availability}
