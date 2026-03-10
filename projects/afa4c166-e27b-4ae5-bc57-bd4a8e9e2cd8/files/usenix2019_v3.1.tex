@@ -50,29 +50,22 @@ Multikernel Technologies, Inc., USA\\
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-CXL (Compute Express Link) enables multiple hosts to share byte-addressable
-memory with hardware cache coherence, creating disaggregated memory pools
-accessible via direct load/store operations.  However, no existing filesystem
-can exploit CXL shared memory for a multi-host writable namespace:
-per-host filesystems (tmpfs, ext4-dax, NOVA) duplicate state across hosts,
-while distributed filesystems impose network protocol overhead on what is
-fundamentally a shared-memory problem.
-
-We present \daxfs, a Linux filesystem designed for CXL shared memory.
-\daxfs maps directly onto byte-addressable DAX memory and uses
-\texttt{cmpxchg} atomic operations, which CXL makes coherent across host
-boundaries, as its sole coordination primitive.  A CAS-based hash overlay
-enables lock-free concurrent writes from multiple hosts without any
-centralized coordinator.  A shared page cache in DAX memory provides
-cooperative demand-paged caching that is automatically visible to all
-participants.  The flat on-disk format enables bounded validation of untrusted
-images with no pointer chasing.
-
-On a 48-core Intel Xeon Gold 5418Y with Optane PMem, \daxfs achieves
-$4.1\times$ higher sequential read throughput than ext4-dax and
-$22\times$ higher than NOVA, while matching tmpfs on small-file reads.
-Metadata stat operations are 12\% faster than ext4-dax.  \daxfs is the
-first filesystem to provide a shared, writable namespace across CXL hosts
+CXL (Compute Express Link) enables multiple hosts to share
+byte-addressable memory with hardware cache coherence.  Workloads such
+as multi-host LLM serving and container image sharing need filesystem
+semantics on this shared memory, yet no existing filesystem supports a
+multi-host writable namespace: per-host filesystems duplicate state
+across hosts, while distributed filesystems impose network overhead on
+what is fundamentally a shared-memory problem.  We present \daxfs, a
+Linux filesystem for CXL shared memory that uses \texttt{cmpxchg} on
+CXL-coherent memory as its sole coordination primitive.  A CAS-based
+hash overlay enables lock-free concurrent writes from multiple hosts.
+A shared page cache provides cooperative demand-paged caching visible
+to all hosts.  A flat on-disk format enables bounded validation of
+untrusted images.  On Optane PMem, \daxfs achieves $4.1\times$ higher
+sequential read throughput than ext4-dax and $22\times$ higher than
+NOVA, while matching tmpfs on small-file reads.  \daxfs is the first
+filesystem to provide a shared, writable namespace across CXL hosts
 with zero-copy access and no locks on the data path.
 
 \end{abstract}
@@ -83,94 +76,67 @@ with zero-copy access and no locks on the data path.
 %-------------------------------------------------------------------------------
 
 Byte-addressable persistent memory~\cite{intel17:pmem,izraelevitz19:pmem}
-and CXL-attached memory~\cite{cxl22:spec} have introduced a
-fundamentally new tier in the memory hierarchy: storage-class media
-directly accessible via CPU load and store instructions.  The Linux
-DAX (Direct Access) subsystem~\cite{linuxdax} maps this memory into
-user address spaces without copying through the page cache, offering
-DRAM-class latency with the capacity and sharing properties of storage.
+and CXL-attached memory~\cite{cxl22:spec} have introduced a new tier
+in the memory hierarchy: storage-class media directly accessible via
+CPU load and store instructions.  The Linux DAX (Direct Access)
+subsystem~\cite{linuxdax} maps this memory into user address spaces
+without copying through the page cache, offering DRAM-class latency
+with storage-scale capacity.
 
-CXL~3.0 introduces \emph{Global Fabric Attached Memory} (GFAM), where a
-memory device connects to a CXL switch fabric and is accessible by
-multiple hosts through hardware-coherent load/store operations.  For the
-first time, independent servers can perform atomic read-modify-write
-operations on shared memory with cache-line granularity and
-hardware-enforced coherence, without a network stack, RDMA verbs, or software
-coherence protocol.  A 64-bit \texttt{cmpxchg} issued by Host~A on a CXL
-memory address is atomic with respect to a concurrent \texttt{cmpxchg}
-by Host~B on the same address.
+CXL~3.0 extends this model to \emph{multiple hosts}: its Global Fabric
+Attached Memory (GFAM) lets independent servers perform hardware-coherent
+atomic operations on the same memory, without a network stack or
+software coherence protocol (\S\ref{sec:motivation}).
 
-A natural use for CXL shared memory is a \emph{shared filesystem}:
-multiple hosts reading and writing a common namespace without copying
-data between per-host page caches or coordinating through a network
-protocol.  Several important workloads demand exactly this capability:
+While applications could access CXL memory through raw \texttt{mmap},
+practical workloads require filesystem semantics: hierarchical naming,
+POSIX permissions for multi-tenant isolation, and kernel-managed
+lifecycle.  Container runtimes and ML serving frameworks consume data
+through file paths; replacing these interfaces with a custom
+shared-memory API is impractical.  Key scenarios include multi-host
+LLM inference (sharing model weights without per-host duplication),
+container rootfs sharing ($N$ containers backed by a single copy), and
+CXL memory pooling across hosts.
 
-\begin{itemize}
-\item \textbf{LLM inference serving.}  Multiple GPU hosts share model
-  weights through a common memory pool.  One copy in CXL memory serves
-  all inference instances, eliminating the minutes-long cold-start
-  latency of loading gigabyte-scale models per host.
+No existing filesystem fills this role
+(Table~\ref{tab:feature-matrix}).  Per-host filesystems duplicate
+state across hosts; distributed filesystems add network overhead that
+CXL should eliminate; FamFS~\cite{groves24:Famfs} targets CXL but
+restricts writes to a single master (\S\ref{sec:motivation}).
 
-\item \textbf{CXL memory pooling.}  CXL~3.0 enables memory pooling
-  across hosts and devices.  A shared CXL memory pool holds common
-  data (foundation model weights, embedding tables, reference
-  datasets) accessed concurrently by multiple hosts or GPU tenants.
-  Duplicating the shared data per host wastes scarce CXL capacity.
-
-\item \textbf{Container rootfs sharing.}  $N$ containers running the same
-  base image today require $N$ copies in host-local page caches.  A shared
-  filesystem on CXL memory reduces this to a single copy.
-
-\item \textbf{Multikernel shared rootfs.}  Independent kernel instances
-  on shared hardware require a common root filesystem without per-kernel
-  duplication or distributed locking.
-\end{itemize}
-
-Existing filesystems fail to serve this environment.
-Table~\ref{tab:feature-matrix} summarizes the limitations.  Per-host
-filesystems (tmpfs, ext4-dax, NOVA) maintain per-host metadata and page
-caches, so $N$ hosts accessing the same data allocate $N$ copies.
-Distributed filesystems (NFS, CephFS, Lustre) interpose a network
-protocol between applications and data, adding latency and complexity
-that CXL shared memory should eliminate.  Overlay-based solutions
-(overlayfs, erofs+fscache) cannot coordinate across hosts and perform
-copy-up operations that negate the sharing benefit.
-FamFS~\cite{groves24:Famfs} targets CXL shared memory but uses a
-single-master log-replay model that precludes concurrent writes from
-client hosts, provides no shared caching, and lacks file mutation
-operations (append, truncate, delete) on clients.
-
-We present \daxfs, a Linux kernel filesystem module designed from the
-ground up for CXL shared memory.  Rather than adapting block-device
-abstractions, \daxfs treats byte-addressable memory as the storage
-medium and introduces three key innovations:
+We present \daxfs, a Linux kernel filesystem module for CXL shared
+memory.  \daxfs treats byte-addressable memory as the storage medium
+and uses \texttt{cmpxchg} on CXL-coherent memory as its sole
+coordination primitive.  It introduces three key mechanisms:
 
 \begin{enumerate}
-\item \textbf{CAS-based hash overlay.}  All writes go through an
-  open-addressing hash table where bucket insertions use a single
-  64-bit \texttt{cmpxchg}.  No locks, no log, no journal.  Multiple
-  hosts insert concurrently with linearizable semantics guaranteed by
-  the CXL coherence protocol.
+\item \textbf{CAS-based hash overlay.}  An open-addressing hash table
+  where bucket insertions use a single 64-bit \texttt{cmpxchg}.
+  No locks, no log, no journal.  Multiple hosts insert concurrently
+  with linearizable semantics.
 
 \item \textbf{Cooperative shared page cache with MH-clock eviction.}
   A demand-paged cache in DAX memory serves all hosts simultaneously.
-  Cache slot state transitions use \texttt{cmpxchg}, so exactly one
-  host fills each slot while others wait.  A novel multi-host clock
-  (MH-clock) eviction algorithm, adapted from the classic CLOCK
-  algorithm, enables fully decentralized victim selection across
-  hosts without a centralized eviction daemon.  Because the cache
-  resides in CXL shared memory, filled slots are immediately visible
-  to all hosts with no invalidation protocol.
+  A novel multi-host clock (MH-clock) eviction algorithm enables
+  fully decentralized victim selection via \texttt{cmpxchg}, with no
+  centralized eviction daemon or invalidation protocol.
 
-\item \textbf{Flat validated format.}  The base image uses fixed-size
-  inodes and flat directory entry arrays with no linked lists, no
-  B-trees, and no pointer indirection.  This enables complete
-  mount-time validation in a single bounded pass.
+\item \textbf{Flat validated format.}  Fixed-size inodes and flat
+  directory entry arrays with no pointer indirection, enabling
+  complete mount-time validation in a single bounded pass.
 \end{enumerate}
 
 \begin{table*}[t]
 \centering
 \footnotesize
+\caption{Feature comparison of \daxfs with existing filesystems.
+  ``Partial'' indicates DAX support exists but the filesystem still
+  maintains significant metadata structures (NOVA, PMFS) or is
+  read-only (EROFS).  FamFS supports multi-host mount but uses
+  single-master metadata with no concurrent writes, no shared caching,
+  and no file mutation (create, append, truncate, or delete) from
+  client hosts.}
+\label{tab:feature-matrix}
 \begin{tabular}{@{}l@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{}}
 \toprule
 \textbf{Property} & \textbf{\daxfs} & \textbf{NOVA} & \textbf{PMFS} & \textbf{FamFS} & \textbf{ext4-dax} & \textbf{EROFS} & \textbf{OverlayFS} \\
@@ -187,14 +153,6 @@ Self-contained image         & \cmark & \xmark  & \xmark  & \xmark & \xmark & \c
 Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \cmark  & N/A    \\
 \bottomrule
 \end{tabular}
-\caption{Feature comparison of \daxfs with existing filesystems.
-  ``Partial'' indicates DAX support exists but the filesystem still
-  maintains significant metadata structures (NOVA, PMFS) or is
-  read-only (EROFS).  FamFS supports multi-host mount but uses
-  single-master metadata with no concurrent writes, no shared caching,
-  and no file mutation (create, append, truncate, or delete) from
-  client hosts.}
-\label{tab:feature-matrix}
 \end{table*}
 
 %-------------------------------------------------------------------------------
@@ -202,10 +160,23 @@ Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \c
 \label{sec:motivation}
 %-------------------------------------------------------------------------------
 
-\daxfs targets scenarios where byte-addressable shared memory is
-available and traditional filesystem abstractions impose unnecessary
-overhead.  We identify three fundamental problems that collectively
-require a new filesystem design.
+\paragraph{CXL 3.0 shared memory model.}
+CXL~3.0~\cite{cxl22:spec} introduces Global Fabric Attached Memory
+(GFAM): a memory device attached to a CXL switch fabric that is
+directly accessible by multiple hosts through hardware-coherent
+load/store operations.  For the first time, independent servers can
+perform atomic read-modify-write operations on the same physical
+memory with cache-line granularity and hardware-enforced coherence,
+without a network stack, RDMA verbs, or software coherence protocol.
+A 64-bit \texttt{cmpxchg} issued by Host~A on a CXL memory address
+is atomic with respect to a concurrent \texttt{cmpxchg} by Host~B on
+the same address.  This primitive is the foundation of \daxfs's
+coordination model.
+
+This hardware capability creates a new design point for shared data
+access, but also exposes a gap in existing system software.  We
+identify three fundamental problems that collectively require a new
+filesystem design.
 
 \paragraph{Per-Host Duplication.}
 tmpfs, ext4-dax, and NOVA each maintain per-host metadata (superblock,
@@ -575,58 +546,22 @@ ordering); on ARM64, they emit fence instructions.
 \subsection{On-Disk Format}
 \label{sec:format}
 
-\daxfs uses a deliberately simple flat format (version~7) designed for
-safe handling of untrusted images and efficient direct access.
-
-\subsubsection{Region Layout}
-
-The memory region is divided into up to four areas, laid out
-sequentially:
-
-\begin{description}
-\item[Superblock (4\,KB).]  Magic number (\texttt{0x64617835},
-  ``dax5''), version, flags, total size, and byte offsets to all
-  other regions.
-
-\item[Base image (optional).]  A self-contained read-only filesystem
-  snapshot with a 4\,KB header, fixed-size inode table (64 bytes per
-  inode), and data area containing file contents and flat directory
-  entry arrays.
-
-\item[Hash overlay (optional).]  A 4\,KB header followed by the
-  bucket array (\texttt{bucket\_count $\times$ 16} bytes) and a
-  variable-size pool for overlay entries.  The header stores magic,
-  bucket count, pool offsets, and atomic counters.
-
-\item[Page cache (optional).]  A 4\,KB header followed by slot
-  metadata (\texttt{slot\_count $\times$ 16} bytes) and slot data
-  (\texttt{slot\_count $\times$ 4\,KB} pages).
-\end{description}
+\daxfs uses a deliberately simple flat format designed for safe
+handling of untrusted images and efficient direct access.  The four
+regions (superblock, base image, hash overlay, page cache) are laid
+out sequentially as described in \S\ref{sec:design}; each region
+uses a 4\,KB header with magic numbers and size fields for
+independent validation.
 
 \subsubsection{Flat Directory Format}
 
 Directories store fixed-size entries of 271 bytes each (the
 \texttt{daxfs\_dirent} structure), containing a name length, an inode
-number, a parent inode number, and a 254-byte inline name.  This flat
-design offers several security and performance advantages over
-pointer-based directory formats (\eg htree in ext4, B-tree in Btrfs,
-linked lists in tmpfs):
-
-\begin{itemize}
-\item \textbf{No pointer chasing.}  Directory entries are stored as
-  flat arrays.  There are no linked lists, B-trees, or hash tables
-  that could contain cycles or dangling pointers.
-
-\item \textbf{Bounded iteration.}  The fixed entry size means
-  directory traversal is a simple loop with a known upper bound.
-
-\item \textbf{Inline names.}  File names are stored directly in the
-  entry, eliminating string table indirection and out-of-bounds
-  vulnerabilities.
-
-\item \textbf{Trivial validation.}  The entire format can be validated
-  in a single pass at mount time without complex tree traversal.
-\end{itemize}
+number, a parent inode number, and a 254-byte inline name.  Unlike
+pointer-based directory formats (htree in ext4, B-tree in Btrfs),
+flat arrays have no cycles or dangling pointers, support bounded
+iteration with a known upper bound, and can be fully validated in a
+single sequential pass at mount time.
 
 \subsubsection{Overlay Pool Entries}
 
@@ -696,42 +631,23 @@ Data resolution on every read path calls
 on the overlay's size field, ensuring cross-host coherency of file
 sizes without explicit invalidation.
 
-\subsection{Kernel Compatibility}
+\subsection{Kernel Compatibility and Tools}
 
-\daxfs supports Linux 5.4 through 6.x via a centralized compatibility
-layer (\texttt{daxfs.h}) that provides shims for API changes across 12
-kernel version boundaries, including the \texttt{user\_namespace}
-$\to$ \texttt{mnt\_idmap} transition (5.12/6.0), the \texttt{fs\_context}
-mount API (5.6), and timestamp accessor changes (6.6).
+\daxfs supports Linux 5.4 through 6.x via a compatibility layer that
+provides shims for API changes across kernel versions.  The userspace
+toolchain includes \textbf{mkdaxfs} for creating filesystem images
+from directory trees (supporting static, split, and empty modes) and
+\textbf{daxfs-inspect} for read-only inspection of mounted instances.
 
-\subsection{Userspace Tools}
+\subsection{Mount-Time Validation}
 
-\textbf{mkdaxfs} creates filesystem images from directory trees.  It
-supports static, split, and empty modes, with configurable overlay
-pool size (default 64\,MB), hash table bucket count (default 65,536),
-and page cache slot count.  It can allocate from DMA heaps and
-optionally mount the image after creation.
-
-\textbf{daxfs-inspect} provides read-only inspection of mounted
-instances, reporting memory layout, overlay hash table utilization
-(bucket occupancy, entry type distribution), and pool usage statistics.
-
-\subsection{Security and Validation}
-
-The flat format enables complete validation in a single sequential
-scan.  When the \texttt{validate} mount option is specified, \daxfs
-checks:
-\begin{itemize}
-\item Superblock magic and version.
-\item All inode table entries: bounds on data offsets and sizes.
-\item All directory entries: name lengths, inode references.
-\item Region overlap detection.
-\end{itemize}
-
-The absence of pointer-based structures eliminates an entire class of
-attacks: cycle injection, dangling pointer exploitation, and unbounded
-traversal, which is important for mounting untrusted images in container
-environments.
+The flat format (\S\ref{sec:format}) enables complete image validation
+in a single sequential scan at mount time.  When the \texttt{validate}
+option is specified, \daxfs checks superblock integrity, inode table
+bounds, directory entry references, and region overlap.  The absence
+of pointer-based structures eliminates cycle injection, dangling
+pointer exploitation, and unbounded traversal, which is important for
+mounting untrusted images in container environments.
 
 %-------------------------------------------------------------------------------
 \section{Evaluation}
@@ -771,20 +687,20 @@ each measurement.  Results are averaged over 5 runs.
 
 \subsection{Sequential Read Throughput}
 
-% \begin{figure}[t]
-% \centering
-% \includegraphics[width=\columnwidth]{bench/results/read_throughput.png}
-% \caption{Sequential read throughput comparison.  Left: 16\,MB file
-%   (1\,MB block size).  Right: 1\,MB file (4\,KB block size).
-%   \daxfs achieves $4.1\times$ higher throughput than ext4-dax on
-%   large files and matches tmpfs on small files.}
-% \label{fig:read_throughput}
-% \end{figure}
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: read throughput chart}\vspace{2cm}}}
+\caption{Sequential read throughput comparison.  Left: 16\,MB file
+  (1\,MB block size).  Right: 1\,MB file (4\,KB block size).
+  \daxfs achieves $4.1\times$ higher throughput than ext4-dax on
+  large files and matches tmpfs on small files.}
+\label{fig:read_throughput}
+\end{figure}
 
 Figure~\ref{fig:read_throughput} shows sequential read throughput for
 two file sizes.
 
-\textbf{Large file (16\,MB).}  \daxfs achieves 104.7\,MB/s,
+\textbf{Large file (16\,MB).}  \daxfs achieves 106.7\,MB/s,
 $4.1\times$ higher than ext4-dax (25.8\,MB/s) and $22.3\times$ higher
 than NOVA (4.8\,MB/s).  tmpfs achieves 228.6\,MB/s, roughly $2\times$
 \daxfs, reflecting the DRAM vs.\ Optane PMem bandwidth gap.
@@ -802,14 +718,14 @@ metadata overhead, achieving DRAM-equivalent throughput even on PMem.
 
 \subsection{Read Latency}
 
-% \begin{figure}[t]
-% \centering
-% \includegraphics[width=\columnwidth]{bench/results/read_latency.png}
-% \caption{Sequential read latency (lower is better).  \daxfs achieves
-%   $4\times$ lower latency than ext4-dax on large files and
-%   $15\times$ lower than NOVA.}
-% \label{fig:read_latency}
-% \end{figure}
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: read latency chart}\vspace{2cm}}}
+\caption{Sequential read latency (lower is better).  \daxfs achieves
+  $4\times$ lower latency than ext4-dax on large files and
+  $15\times$ lower than NOVA.}
+\label{fig:read_latency}
+\end{figure}
 
 Figure~\ref{fig:read_latency} shows read latency for the same
 workloads.  \daxfs completes a 16\,MB sequential read in 153.6\,ms
@@ -826,13 +742,13 @@ iomap overhead on every \texttt{read\_iter} call.
 
 \subsection{Metadata Operations}
 
-% \begin{figure}[t]
-% \centering
-% \includegraphics[width=\columnwidth]{bench/results/metadata.png}
-% \caption{Metadata operation latency on 1,000 files (lower is better).
-%   Left: \texttt{readdir}.  Right: \texttt{stat}.}
-% \label{fig:metadata}
-% \end{figure}
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: metadata latency chart}\vspace{2cm}}}
+\caption{Metadata operation latency on 1,000 files (lower is better).
+  Left: \texttt{readdir}.  Right: \texttt{stat}.}
+\label{fig:metadata}
+\end{figure}
 
 Figure~\ref{fig:metadata} shows metadata operation latency on a
 directory containing 1,000 files.
@@ -855,7 +771,7 @@ benefit from indexing.
 
 \begin{table}[t]
 \centering
-\small
+\footnotesize
 \caption{Benchmark results summary.  Best DAX filesystem results in
   \textbf{bold}.  tmpfs uses DRAM and serves as an upper bound for
   throughput comparisons.}
@@ -868,10 +784,6 @@ SeqRead 16M (MB/s)$\uparrow$  & \textbf{106.7} & 25.8   & 4.8    & 228.6  \\
 SeqRead 1M (MB/s)$\uparrow$   & \textbf{100.0} & 4.8    & 4.8    & 100.0  \\
 readdir 1K (ms)$\downarrow$    & 40.0           & \textbf{23.6} & 41.9 & 39.8 \\
 stat 1K (ms)$\downarrow$       & \textbf{3,550} & 4,029  & 3,748  & 3,974  \\
-\midrule
-Multi-host writes  & \cmark  & \xmark  & \xmark  & \xmark  \\
-Shared cache       & \cmark  & \xmark  & \xmark  & \xmark  \\
-Lock-free writes   & \cmark  & \xmark  & \xmark  & \xmark  \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -884,14 +796,14 @@ ext4-dax's HTree directory index beats \daxfs on readdir.  Critically,
 multi-host writes, shared caching, and lock-free writes, capabilities
 that none of the baselines offer.
 
-% \begin{figure}[t]
-% \centering
-% \includegraphics[width=\columnwidth]{bench/results/summary.png}
-% \caption{Normalized performance summary across all benchmarks.
-%   \daxfs matches or exceeds all DAX baselines on throughput and
-%   metadata operations, approaching tmpfs (DRAM) on small files.}
-% \label{fig:summary}
-% \end{figure}
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2cm}\textit{TODO: normalized summary chart}\vspace{2cm}}}
+\caption{Normalized performance summary across all benchmarks.
+  \daxfs matches or exceeds all DAX baselines on throughput and
+  metadata operations, approaching tmpfs (DRAM) on small files.}
+\label{fig:summary}
+\end{figure}
 
 Figure~\ref{fig:summary} shows the normalized comparison.  On
 throughput benchmarks, \daxfs closes the gap to DRAM-backed tmpfs
@@ -954,12 +866,14 @@ supporting multiple hosts mounting the same DAX region.  However, the
 two systems make fundamentally different design choices, summarized in
 Table~\ref{tab:famfs-comparison}.
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering
 \footnotesize
+\caption{Architectural comparison of \daxfs and FamFS.}
+\label{tab:famfs-comparison}
 \begin{tabular}{@{}lll@{}}
 \toprule
- & \textbf{\daxfs} & \textbf{FamFS} \\
+\textbf{Aspect} & \textbf{\daxfs} & \textbf{FamFS} \\
 \midrule
 Coordination    & Peer-to-peer \texttt{cmpxchg} & Single master log \\
 Writes          & Any host, lock-free CAS        & Master only \\
@@ -971,9 +885,7 @@ Layered storage & Base image + COW overlay       & None \\
 CXL atomics     & Core design primitive          & Not used \\
 \bottomrule
 \end{tabular}
-\caption{Architectural comparison of \daxfs and FamFS.}
-\label{tab:famfs-comparison}
-\end{table}
+\end{table*}
 
 FamFS is a thin mapping layer: a single master host pre-allocates
 files as individually mapped extents and writes a metadata log that
@@ -1000,11 +912,11 @@ hardware atomics on shared memory.
 \subsection{Read-Only and Container Filesystems}
 
 EROFS~\cite{gao20:erofs} provides compressed read-only images with
-fscache-based demand paging.  Nydus and Stargz provide lazy container
-image pulling.  composefs shares file content across images via
-content-addressed storage.  These focus on image distribution
-efficiency; none support multi-host runtime sharing or concurrent
-writes.
+fscache-based demand paging.  Slacker~\cite{harter16:slacker}
+demonstrated lazy container image distribution; subsequent systems
+(Nydus, Stargz, composefs) further optimize image pulling and
+content sharing.  These focus on image distribution efficiency; none
+support multi-host runtime sharing or concurrent writes.
 
 \subsection{Lock-Free Data Structures}
 
