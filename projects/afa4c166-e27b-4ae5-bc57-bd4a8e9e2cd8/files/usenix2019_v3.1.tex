@@ -465,9 +465,9 @@ Each cache slot has a 16-byte metadata entry:
 \begin{lstlisting}
 struct daxfs_pcache_slot {
   __le64 state_tag; /* bits[1:0]=state,
-                       bits[63:2]=tag */
-  __le64 ref_bit;   /* clock sweep +
-                       refcount pin */
+     bits[5:2]=refcount, bits[63:6]=tag */
+  __le32 ref_bit;   /* clock: recently used */
+  __le32 reserved;
 };
 \end{lstlisting}
 
@@ -478,15 +478,20 @@ The state machine uses three states encoded in the low 2 bits:
   $\xrightarrow{\texttt{cmpxchg}}$ VALID (2)}
 \end{center}
 
-The upper 58 bits encode the tag:
+Bits [5:2] hold a 4-bit refcount (0--15 concurrent readers),
+and the upper 58 bits encode the tag:
 \texttt{(ino $\ll$ 20) | pgoff}, identifying which file page this
-slot caches.
+slot caches.  Packing state, refcount, and tag into a single 64-bit
+word allows a single \texttt{cmpxchg} to atomically update all three
+fields, which is essential for lock-free multi-host coordination.
 
 \textbf{Fill protocol.}  When a host needs a page not in the cache:
 \begin{enumerate}
-\item Find a FREE slot (clock-hand scan).
-\item \texttt{cmpxchg} the slot from FREE to PENDING with the desired
-  tag.  If another host wins, retry.
+\item Probe up to 8 slots starting at the hash position.  If a
+  matching VALID slot is found, pin it (CAS-increment refcount) and
+  return.  If a FREE slot is found, record it.
+\item \texttt{cmpxchg} the FREE slot from FREE to PENDING with the
+  desired tag.  If another host wins, retry.
 \item Read the backing file page into the slot's data area via
   \texttt{kernel\_read}.
 \item \texttt{cmpxchg} the slot from PENDING to VALID.
@@ -496,13 +501,41 @@ Other hosts that need the same page during step~3 see the PENDING
 state and busy-poll until VALID, avoiding duplicate reads from the
 backing file.
 
-\subsubsection{Eviction}
+\subsubsection{MH-Clock Eviction}
 
-\daxfs uses a clock-based eviction algorithm.  An atomic
-\texttt{evict\_hand} sweeps through slots, clearing \texttt{ref\_bit}
-on the first pass and evicting (setting to FREE) on the second pass
-if \texttt{ref\_bit} is still clear.  Slots with active refcount pins
-are skipped, preventing eviction during in-progress reads.
+When all probe slots are occupied, \daxfs uses a multi-host clock
+(MH-clock) eviction algorithm that combines local probe-window
+eviction with a global background sweep.  Unlike a standard clock
+algorithm with a single centralized hand, MH-clock is fully
+decentralized: each host independently selects victims within its
+local probe window using three escalating phases:
+
+\begin{enumerate}
+\item \textbf{Cold victim.}  Scan the 8-slot probe window for a
+  VALID slot with \texttt{ref\_bit}=0 and refcount=0.  If found,
+  CAS it to FREE and restart the fill.
+\item \textbf{Clear and yield.}  If all probed slots are hot
+  (\texttt{ref\_bit}=1), clear their \texttt{ref\_bit} fields and
+  yield the CPU briefly (\texttt{cpu\_relax}).  This gives other
+  hosts an opportunity to re-touch genuinely hot entries before
+  the re-scan.
+\item \textbf{Re-scan.}  Scan again for a cold, unpinned victim.
+  If still none, force-evict the first VALID slot with refcount=0,
+  ignoring \texttt{ref\_bit}.
+\end{enumerate}
+
+A separate background clock sweep periodically advances a shared
+atomic \texttt{evict\_hand} counter by 64 slots using
+\texttt{cmpxchg}; the host that wins the CAS clears
+\texttt{ref\_bit} on all VALID slots in that window.  Hosts that
+lose the race skip the sweep, ensuring that only one host clears
+each window and ref\_bits decay at a controlled rate even under
+contention.
+
+The refcount in \texttt{state\_tag} ensures that slots actively
+being read by any host are never evicted.  Readers CAS-increment
+the refcount before accessing slot data and CAS-decrement it
+afterward, providing safe pinning without locks.
 
 \subsubsection{Multi-File Support}
 
