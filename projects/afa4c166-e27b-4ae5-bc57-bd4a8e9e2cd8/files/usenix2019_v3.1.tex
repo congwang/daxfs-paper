@@ -60,8 +60,8 @@ fundamentally a shared-memory problem.
 
 We present \daxfs, a Linux filesystem designed for CXL shared memory.
 \daxfs maps directly onto byte-addressable DAX memory and uses
-\texttt{cmpxchg} atomic operations---which CXL makes coherent across host
-boundaries---as its sole coordination primitive.  A CAS-based hash overlay
+\texttt{cmpxchg} atomic operations, which CXL makes coherent across host
+boundaries, as its sole coordination primitive.  A CAS-based hash overlay
 enables lock-free concurrent writes from multiple hosts without any
 centralized coordinator.  A shared page cache in DAX memory provides
 cooperative demand-paged caching that is automatically visible to all
@@ -95,7 +95,7 @@ memory device connects to a CXL switch fabric and is accessible by
 multiple hosts through hardware-coherent load/store operations.  For the
 first time, independent servers can perform atomic read-modify-write
 operations on shared memory with cache-line granularity and
-hardware-enforced coherence---no network stack, no RDMA verbs, no software
+hardware-enforced coherence, without a network stack, RDMA verbs, or software
 coherence protocol.  A 64-bit \texttt{cmpxchg} issued by Host~A on a CXL
 memory address is atomic with respect to a concurrent \texttt{cmpxchg}
 by Host~B on the same address.
@@ -113,8 +113,8 @@ protocol.  Several important workloads demand exactly this capability:
 
 \item \textbf{CXL memory pooling.}  CXL~3.0 enables memory pooling
   across hosts and devices.  A shared CXL memory pool holds common
-  data---foundation model weights, embedding tables, reference
-  datasets---accessed concurrently by multiple hosts or GPU tenants.
+  data (foundation model weights, embedding tables, reference
+  datasets) accessed concurrently by multiple hosts or GPU tenants.
   Duplicating the shared data per host wastes scarce CXL capacity.
 
 \item \textbf{Container rootfs sharing.}  $N$ containers running the same
@@ -209,7 +209,7 @@ tmpfs, ext4-dax, and NOVA each maintain per-host metadata (superblock,
 inode cache, dentry cache) and per-host page caches.  Even if two hosts
 map the same physical memory, each host instantiates independent VFS
 state.  When 8 hosts serve the same LLM model, this means 8 copies of
-the page cache metadata and 8 independent directory caches---a pure
+the page cache metadata and 8 independent directory caches, a pure
 waste of CXL memory capacity.  A single 70B-parameter model at FP16
 occupies 140\,GB; a pool serving $N$ tenants cannot afford $N$ copies.
 
@@ -224,14 +224,14 @@ same DAX region.  However, FamFS and \daxfs differ fundamentally in
 architecture.  FamFS uses a single-master log-replay model: one
 designated master host pre-allocates files as individually mapped
 extents and writes a metadata log that client hosts replay.  Clients
-cannot create files, append data, truncate, or delete---they are
+cannot create files, append data, truncate, or delete; they are
 limited to reading pre-allocated content, and if writable access is
 granted, users must manage coherency themselves.  There is no shared
 cache; each host manages its own access independently.  FamFS does
 not use CXL atomics (\texttt{cmpxchg}) for coordination, relying
 instead on the single-writer log for metadata consistency.  There is
 no layering concept (base image plus overlay), no self-contained
-image format, and no internal allocator---file extents are managed
+image format, and no internal allocator; file extents are managed
 entirely by the master.
 
 By contrast, \daxfs uses a peer-to-peer coordination model where
@@ -352,12 +352,12 @@ Figure~\ref{fig:arch} illustrates the layout.  The filesystem
 supports three operating modes depending on which regions are present:
 
 \begin{itemize}
-\item \textbf{Static mode}: \texttt{[Super][Base Image]}---read-only,
+\item \textbf{Static mode}: \texttt{[Super][Base Image]}, read-only;
   the base image is self-contained in DAX memory.
-\item \textbf{Split mode}: \texttt{[Super][Base Image][Overlay][PCache]}---writable,
+\item \textbf{Split mode}: \texttt{[Super][Base Image][Overlay][PCache]}, writable;
   metadata in DAX, bulk file data in a separate backing file accessed
   through the shared page cache.
-\item \textbf{Empty mode}: \texttt{[Super][Overlay][PCache]}---writable,
+\item \textbf{Empty mode}: \texttt{[Super][Overlay][PCache]}, writable;
   no base image, all content written through the overlay.
 \end{itemize}
 
@@ -707,7 +707,7 @@ checks:
 
 The absence of pointer-based structures eliminates an entire class of
 attacks: cycle injection, dangling pointer exploitation, and unbounded
-traversal---important for mounting untrusted images in container
+traversal, which is important for mounting untrusted images in container
 environments.
 
 %-------------------------------------------------------------------------------
@@ -858,7 +858,7 @@ best sequential read throughput among DAX filesystems ($4.1\times$
 ext4-dax, $22\times$ NOVA) and the fastest stat operations.  Only
 ext4-dax's HTree directory index beats \daxfs on readdir.  Critically,
 \daxfs achieves these results while simultaneously supporting
-multi-host writes, shared caching, and lock-free writes---capabilities
+multi-host writes, shared caching, and lock-free writes, capabilities
 that none of the baselines offer.
 
 % \begin{figure}[t]
@@ -1034,7 +1034,7 @@ and zero-copy access in a unified design.
 
 Our evaluation shows that \daxfs achieves $4.1\times$ the sequential
 read throughput of ext4-dax, $22\times$ that of NOVA, and matches
-tmpfs on small-file reads---while providing multi-host sharing
+tmpfs on small-file reads, while providing multi-host sharing
 semantics that none of these baselines support.  As CXL~3.0 hardware
 becomes available, \daxfs provides a ready filesystem layer for
 disaggregated memory pools.
