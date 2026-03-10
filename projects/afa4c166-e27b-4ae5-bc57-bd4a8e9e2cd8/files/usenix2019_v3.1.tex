@@ -152,12 +152,15 @@ medium and introduces three key innovations:
   hosts insert concurrently with linearizable semantics guaranteed by
   the CXL coherence protocol.
 
-\item \textbf{Cooperative shared page cache.}  A demand-paged cache
-  in DAX memory serves all hosts simultaneously.  Cache slot state
-  transitions use \texttt{cmpxchg}, so exactly one host fills each
-  slot while others wait.  Because the cache resides in CXL shared
-  memory, filled slots are immediately visible to all hosts with no
-  invalidation protocol.
+\item \textbf{Cooperative shared page cache with MH-clock eviction.}
+  A demand-paged cache in DAX memory serves all hosts simultaneously.
+  Cache slot state transitions use \texttt{cmpxchg}, so exactly one
+  host fills each slot while others wait.  A novel multi-host clock
+  (MH-clock) eviction algorithm, adapted from the classic CLOCK
+  algorithm, enables fully decentralized victim selection across
+  hosts without a centralized eviction daemon.  Because the cache
+  resides in CXL shared memory, filled slots are immediately visible
+  to all hosts with no invalidation protocol.
 
 \item \textbf{Flat validated format.}  The base image uses fixed-size
   inodes and flat directory entry arrays with no linked lists, no
@@ -503,12 +506,13 @@ backing file.
 
 \subsubsection{MH-Clock Eviction}
 
-When all probe slots are occupied, \daxfs uses a multi-host clock
-(MH-clock) eviction algorithm that combines local probe-window
-eviction with a global background sweep.  Unlike a standard clock
-algorithm with a single centralized hand, MH-clock is fully
-decentralized: each host independently selects victims within its
-local probe window using three escalating phases:
+When all probe slots are occupied, \daxfs uses a novel multi-host
+clock (MH-clock) eviction algorithm, adapted from the classic CLOCK
+algorithm~\cite{corbato68:clock} for lock-free operation across
+CXL-connected hosts.  Unlike the standard CLOCK algorithm, which
+assumes a single centralized hand managed by one OS instance,
+MH-clock is fully decentralized: each host independently selects
+victims within its local probe window using three escalating phases:
 
 \begin{enumerate}
 \item \textbf{Cold victim.}  Scan the 8-slot probe window for a
@@ -1095,6 +1099,11 @@ A.~Baumann, P.~Barham, P.-E. Dagand, T.~Harris, R.~Isaacs, S.~Peter,
 \bibitem{cxl22:spec}
 {CXL Consortium}.
 \newblock {Compute Express Link (CXL)} specification, revision 3.0, 2022.
+
+\bibitem{corbato68:clock}
+F.~J. Corbat\'{o}.
+\newblock A paging experiment with the {Multics} system.
+\newblock In {\em MIT Project MAC Report MAC-M-384}, 1968.
 
 \bibitem{daxfs:repo}
 {DAXFS}.
