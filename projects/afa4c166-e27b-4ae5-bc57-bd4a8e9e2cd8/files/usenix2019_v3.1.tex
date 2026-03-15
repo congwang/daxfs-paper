@@ -557,100 +557,16 @@ ordering); on ARM64, they emit fence instructions.
 \subsection{GPU Zero-Copy Access}
 \label{sec:gpu}
 
-The key insight enabling GPU participation is that \daxfs's entire
-coordination protocol reduces to \texttt{cmpxchg} operations on
-DAX memory.  PCIe~3.0+ supports AtomicOp Transaction Layer Packets
-(TLPs), including 32-bit and 64-bit compare-and-swap, that are
-serialized at the memory controller alongside CPU \texttt{LOCK CMPXCHG}
-instructions.  An NVIDIA GPU executing \texttt{atomicCAS} on a
-device pointer that maps to DAX memory therefore participates in the
-same atomic protocol as CPU hosts, requiring no software bridge.
-
-\subsubsection{Memory Mapping}
-
-\daxfs maps the DAX region into GPU address space via \texttt{dma-buf}.
-The kernel exposes a \texttt{dma-buf} file descriptor via the
-\texttt{DAXFS\_IOC\_GET\_DMABUF} ioctl.  User space imports this fd into
-CUDA via \texttt{cuImportExternalMemory} (opaque-fd type), then calls
-\texttt{cuExternalMemoryGetMappedBuffer} to obtain a
-\texttt{CUdeviceptr}.  This is a true zero-copy path: the GPU reads
-and writes the same physical pages that the CPU filesystem code uses.
-
-The \texttt{DAXFS\_IOC\_GET\_GPU\_INFO}
-ioctl returns a \texttt{daxfs\_gpu\_info} structure containing all
-offsets needed to compute device pointers into the coordination lock,
-commit sequence counter, page cache slots, and page cache data area.
-
-\subsubsection{GPU-Side Coordination Protocol}
-
-The GPU-side header (\texttt{daxfs\_gpu.h}) provides
-\texttt{\_\_device\_\_ \_\_forceinline\_\_} CUDA functions that mirror
-the kernel's coordination protocol exactly:
-
-\begin{table}[h]
-\centering
-\small
-\caption{GPU device functions and their CPU-side equivalents.
-  All GPU functions use \texttt{\_\_threadfence\_system()} to enforce
-  ordering across the PCIe fabric.}
-\label{tab:gpu-funcs}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{GPU Function} & \textbf{Kernel Equivalent} \\
-\midrule
-\texttt{daxfs\_gpu\_coord\_lock}    & \texttt{daxfs\_coord\_lock} \\
-\texttt{daxfs\_gpu\_coord\_unlock}  & \texttt{daxfs\_coord\_unlock} \\
-\texttt{daxfs\_gpu\_read\_commit\_seq} & \texttt{daxfs\_commit\_seq\_changed} \\
-\texttt{daxfs\_gpu\_slot\_cmpxchg}  & \texttt{slot\_cmpxchg} \\
-\texttt{daxfs\_gpu\_pcache\_lookup} & \texttt{daxfs\_pcache\_get\_page} \\
-\texttt{daxfs\_gpu\_pcache\_claim}  & pcache slow path \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The critical ordering primitive is \texttt{\_\_threadfence\_system()},
-which ensures that GPU stores are visible to CPUs and vice versa across
-the PCIe fabric.  Without this fence, GPU writes could remain in the
-GPU's L2 cache and never reach the memory controller where CPU atomics
-are serialized.
-
-\subsubsection{GPU Page Cache Interaction}
-
-GPU threads interact with the shared page cache through a three-step
-protocol that requires no kernel transitions:
-
-\begin{enumerate}
-\item \textbf{Fast-path lookup.}  The GPU reads the slot's
-  \texttt{state\_tag} via a volatile load.  If the state is VALID and
-  the tag matches the desired \texttt{(ino $\ll$ 20) | pgoff}, the GPU
-  reads data directly from the slot, a cache hit with zero atomics.
-
-\item \textbf{Claim a FREE slot.}  If no matching VALID slot exists,
-  the GPU atomically CAS-transitions a FREE slot to PENDING with the
-  desired tag, then increments the pending counter via a CAS loop.
-  The host kernel detects PENDING slots and fills them from the backing
-  file via \texttt{kernel\_read}.
-
-\item \textbf{Wait for VALID.}  The GPU polls the slot's state until
-  the CPU transitions it from PENDING to VALID, then reads the data.
-  A configurable \texttt{max\_iters} timeout prevents GPU thread stalls.
-\end{enumerate}
-
-This protocol means the GPU can trigger cache population by writing a
-single atomic to shared memory.  The kernel's existing page cache fill
-logic picks up the PENDING slot and fills it without any explicit
-CPU--GPU signaling.  Once the slot is VALID, the GPU reads file data
-directly from DAX memory at PCIe bandwidth.
-
-\subsubsection{Commit-Sequence Detection}
-
-GPU threads detect filesystem commits by reading the global
-\texttt{commit\_seq} counter via a volatile load.  When a CPU host
-commits a speculative branch, it increments \texttt{commit\_seq} with
-an atomic add.  GPU-side agents can poll this counter to detect
-invalidation events (for example, discarding a prefetched model
-checkpoint when a newer version is committed) without any CPU
-notification or interrupt.
+Because \daxfs stores all file data in DAX memory, and CXL memory
+shares the PCIe fabric with GPU accelerators, the filesystem region
+can be exported to GPUs for zero-copy reads.  \daxfs exposes the DAX
+region via \texttt{dma-buf}: the kernel provides a file descriptor
+through the \texttt{DAXFS\_IOC\_GET\_DMABUF} ioctl, which user space
+imports into CUDA via \texttt{cuImportExternalMemory} to obtain a
+\texttt{CUdeviceptr} mapping the same physical pages.  CPU hosts
+populate the shared page cache through normal filesystem operations;
+GPUs then read cached pages directly from DAX memory via P2P DMA over
+the PCIe fabric, bypassing the CPU.
 
 \subsection{On-Disk Format}
 \label{sec:format}
