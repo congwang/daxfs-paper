@@ -90,15 +90,7 @@ with storage-scale capacity.
 CXL~3.0 extends this model to \emph{multiple hosts}: its Global Fabric
 Attached Memory (GFAM) lets independent servers perform hardware-coherent
 atomic operations on the same memory, without a network stack or
-software coherence protocol (\S\ref{sec:motivation}).  Meanwhile, GPU
-accelerators are the dominant consumers of large-scale data: a single
-LLM training job reads terabytes of model checkpoints and datasets, and
-inference serving loads 140\,GB+ model weights on every cold start.
-Today, this data must flow \emph{filesystem $\to$ kernel page cache
-$\to$ user buffer $\to$ \texttt{cudaMemcpy} $\to$ GPU memory}, a path
-that crosses the kernel twice, copies data at least twice, and cannot
-exploit the fact that CXL memory is already on the same PCIe fabric as
-the GPU.
+software coherence protocol (\S\ref{sec:motivation}).
 
 While applications could access CXL memory through raw \texttt{mmap},
 practical workloads require filesystem semantics: hierarchical naming,
@@ -116,10 +108,9 @@ No existing filesystem fills this role
 state across hosts; distributed filesystems add network overhead that
 CXL should eliminate; FamFS~\cite{groves24:Famfs} targets CXL but
 restricts writes to a single master (\S\ref{sec:motivation}).
-None support GPU-direct data access.
 
 We present \daxfs, a Linux kernel filesystem module for CXL shared
-memory with native GPU accelerator support.  \daxfs treats
+memory.  \daxfs treats
 byte-addressable memory as the storage medium and uses
 \texttt{cmpxchg} on CXL-coherent memory as its sole coordination
 primitive.  It introduces three key mechanisms:
@@ -160,15 +151,10 @@ P2P zero-copy reads over the PCIe fabric (\S\ref{sec:gpu}).
 \textbf{Property} & \textbf{\daxfs} & \textbf{NOVA} & \textbf{PMFS} & \textbf{FamFS} & \textbf{ext4-dax} & \textbf{EROFS} & \textbf{OverlayFS} \\
 \midrule
 Zero-copy DAX reads          & \cmark & Partial & Partial & \cmark & \cmark & Partial & \xmark \\
-No page cache overhead       & \cmark & \cmark  & \cmark  & \cmark & \cmark & \cmark  & \xmark \\
 Multi-host concurrent writes & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
 Lock-free data path          & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
 Shared cache across hosts    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-CXL atomics for coordination & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-GPU zero-copy data access    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-GPU-side cache coordination  & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
 Layered storage (base+overlay) & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark  & \cmark \\
-File create/append/delete    & \cmark & \cmark  & \cmark  & \xmark & \cmark & \xmark  & \cmark \\
 Self-contained image         & \cmark & \xmark  & \xmark  & \xmark & \xmark & \cmark  & N/A    \\
 Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \cmark  & N/A    \\
 \bottomrule
@@ -194,9 +180,11 @@ the same address.  This primitive is the foundation of \daxfs's
 coordination model.
 
 This hardware capability creates a new design point for shared data
-access, but also exposes a gap in existing system software.  We
-identify three fundamental problems that collectively require a new
-filesystem design.
+access, analogous to the multikernel problem~\cite{baumann09:multikernel}
+where independent OS instances coordinate through shared memory rather
+than message passing.  However, existing system software is not prepared
+for this model.  We identify three fundamental problems that
+collectively require a new filesystem design.
 
 \paragraph{Per-Host Duplication.}
 tmpfs, ext4-dax, and NOVA each maintain per-host metadata (superblock,
@@ -229,31 +217,7 @@ latency to what should be ns-scale load/store operations.
 When the memory is already directly accessible via CXL, a network
 filesystem negates the entire benefit of disaggregated memory.
 
-\paragraph{GPU Data Path Overhead.}
-GPU inference workloads must bulk-load model weights on every cold
-start.  A 70B-parameter LLM at FP16 requires reading 140\,GB from
-the filesystem into GPU memory.  The conventional path is:
-(1)~\texttt{read()} copies file data from the kernel page cache to a
-user-space buffer; (2)~\texttt{cudaMemcpy()} copies the buffer across
-PCIe to the GPU.  Each gigabyte crosses the CPU twice and the PCIe bus
-once.  Using \texttt{mmap()} avoids the \texttt{read()} syscall but not
-the GPU copy: GPU DMA requires physically contiguous (or
-IOMMU-contiguous) memory, so mmap'd pages must still be pinned and
-copied via \texttt{cudaMemcpy()}.  GPUDirect
-Storage~\cite{gpudirect:storage} bypasses the CPU by DMA-ing from an
-NVMe device directly to GPU memory, but it still requires a block
-device, cannot participate in filesystem coordination, and does not
-support shared multi-host access.
-
-CXL shared memory and GPUs already share the same PCIe fabric.  PCIe
-3.0+ supports AtomicOp Transaction Layer Packets (TLPs), including
-compare-and-swap, that are serialized at the memory controller
-alongside CPU \texttt{LOCK CMPXCHG} instructions.  A filesystem whose
-coordination is built entirely on \texttt{cmpxchg} can therefore extend
-to GPU threads that issue \texttt{atomicCAS} over the same PCIe fabric,
-enabling GPU-side filesystem coordination with no CPU involvement.
-
-These observations lead to five design requirements:
+These observations lead to four design requirements:
 \begin{enumerate}
 \item \textbf{Lock-free multi-host writes.}  Multiple hosts must
   create files, write data, and modify metadata concurrently without
@@ -264,9 +228,6 @@ These observations lead to five design requirements:
 \item \textbf{Zero-copy access.}  Applications should \texttt{mmap}
   file data directly from CXL memory without copying through a
   per-host page cache.
-\item \textbf{GPU-direct data access.}  GPU threads must be able to
-  read file data and participate in cache coordination without CPU
-  involvement or kernel transitions.
 \item \textbf{Bounded validation.}  Images from untrusted sources
   must be validatable in $O(n)$ time with no risk of infinite loops
   from malformed pointers.
@@ -277,12 +238,11 @@ These observations lead to five design requirements:
 \label{sec:design}
 %-------------------------------------------------------------------------------
 
-\daxfs is designed around four principles: (1)~\emph{memory is the
+\daxfs is designed around three principles: (1)~\emph{memory is the
 storage}, not a cache for a block device; (2)~\emph{reads should be
-free}, resolving to direct pointer dereferences; (3)~\emph{coordination
-uses only hardware atomics}, with no locks on the data path; and
-(4)~\emph{any PCIe agent that can issue AtomicOps should be a
-first-class participant}, including GPU threads.
+free}, resolving to direct pointer dereferences; and
+(3)~\emph{coordination uses only hardware atomics}, with no locks on
+the data path.
 
 \subsection{Architecture Overview}
 
@@ -822,13 +782,13 @@ mounting untrusted images in container environments.
 \label{sec:evaluation}
 %-------------------------------------------------------------------------------
 
-We evaluate \daxfs in two dimensions: (1)~CPU-side filesystem
-throughput against tmpfs on a single host (\S\ref{sec:seq-throughput}--\S\ref{sec:random-io}),
-and (2)~GPU-side coordination latency and throughput via PCIe AtomicOps
-(\S\ref{sec:gpu-eval}).  tmpfs represents the performance ceiling for
-in-memory filesystems: it runs entirely in DRAM with no persistence,
-no DAX layer, and no sharing overhead.  Multi-host evaluation on CXL
-hardware is discussed in \S\ref{sec:multihost}.
+We evaluate \daxfs's filesystem throughput against tmpfs on a single
+host (\S\ref{sec:seq-throughput}--\S\ref{sec:random-io}) and
+characterize GPU P2P access latency (\S\ref{sec:gpu-eval}).  tmpfs
+represents the performance ceiling for in-memory filesystems: it runs
+entirely in DRAM with no persistence, no DAX layer, and no sharing
+overhead.  Multi-host evaluation on CXL hardware is discussed in
+\S\ref{sec:multihost}.
 
 \subsection{Experimental Setup}
 
@@ -1377,11 +1337,6 @@ H.~Al~Maruf \textit{et al.}
 \newblock In {\em ACM International Conference on Architectural Support for
   Programming Languages and Operating Systems (ASPLOS)}, 2023.
 
-\bibitem{merkel14:docker}
-D.~Merkel.
-\newblock {Docker}: Lightweight {Linux} containers for consistent development
-  and deployment.
-\newblock {\em Linux Journal}, 239:2, 2014.
 
 \bibitem{michael02:lockfree}
 M.~M. Michael.
