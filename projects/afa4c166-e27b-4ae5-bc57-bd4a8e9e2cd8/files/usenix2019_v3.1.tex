@@ -99,7 +99,6 @@ lifecycle.  Container runtimes and ML serving frameworks consume data
 through file paths; replacing these interfaces with a custom
 shared-memory API is impractical.  Key scenarios include multi-host
 LLM inference (sharing model weights without per-host duplication),
-GPU training pipelines (reading datasets directly from shared memory),
 container rootfs sharing ($N$ containers backed by a single copy), and
 CXL memory pooling across hosts.
 
@@ -110,8 +109,7 @@ CXL should eliminate; FamFS~\cite{groves24:Famfs} targets CXL but
 restricts writes to a single master (\S\ref{sec:motivation}).
 
 We present \daxfs, a Linux kernel filesystem module for CXL shared
-memory.  \daxfs treats
-byte-addressable memory as the storage medium and uses
+memory that treats byte-addressable memory as the storage medium and uses
 \texttt{cmpxchg} on CXL-coherent memory as its sole coordination
 primitive.  It introduces three key mechanisms:
 
@@ -191,8 +189,8 @@ tmpfs, ext4-dax, and NOVA each maintain per-host metadata (superblock,
 inode cache, dentry cache) and per-host page caches.  Even if two hosts
 map the same physical memory, each host instantiates independent VFS
 state.  When 8 hosts serve the same LLM model, this means 8 copies of
-the page cache metadata and 8 independent directory caches, a pure
-waste of CXL memory capacity.  A single 70B-parameter model at FP16
+the page cache metadata and 8 independent directory caches, wasting
+CXL memory capacity.  A single 70B-parameter model at FP16
 occupies 140\,GB; a pool serving $N$ tenants cannot afford $N$ copies.
 
 \paragraph{No Multi-Host Coordination.}
@@ -416,8 +414,8 @@ To insert a new entry, a host:
   repeat.
 \end{enumerate}
 
-This protocol is lock-free: no host can block another.  Under hash
-collision, it degrades gracefully with bounded probing.
+This protocol is lock-free: no host can block another.  Hash
+collisions are resolved by linear probing within the table.
 
 \subsubsection{Pool Allocator}
 
@@ -430,7 +428,7 @@ off = atomic_fetch_add(&hdr->pool_alloc,
                        size);
 \end{lstlisting}
 
-This is a single atomic operation, contention-free across hosts.
+This is a single atomic operation with minimal contention across hosts.
 Freed entries are recycled through per-type lock-free free lists (CAS
 on list head), avoiding pool exhaustion for long-running workloads.
 
@@ -522,7 +520,7 @@ atomic \texttt{evict\_hand} counter by 64 slots using
 \texttt{cmpxchg}; the host that wins the CAS clears
 \texttt{ref\_bit} on all VALID slots in that window.  Hosts that
 lose the race skip the sweep, ensuring that only one host clears
-each window and ref\_bits decay at a controlled rate even under
+each window and \texttt{ref\_bit} values decay at a controlled rate even under
 contention.
 
 The refcount in \texttt{state\_tag} ensures that slots actively
@@ -581,7 +579,9 @@ The kernel exposes a \texttt{dma-buf} file descriptor via the
 CUDA via \texttt{cuImportExternalMemory} (opaque-fd type), then calls
 \texttt{cuExternalMemoryGetMappedBuffer} to obtain a
 \texttt{CUdeviceptr}.  This is a true zero-copy path: the GPU reads
-and writes the same physical pages that the CPU filesystem code uses.  The \texttt{DAXFS\_IOC\_GET\_GPU\_INFO}
+and writes the same physical pages that the CPU filesystem code uses.
+
+The \texttt{DAXFS\_IOC\_GET\_GPU\_INFO}
 ioctl returns a \texttt{daxfs\_gpu\_info} structure containing all
 offsets needed to compute device pointers into the coordination lock,
 commit sequence counter, page cache slots, and page cache data area.
@@ -905,7 +905,7 @@ on single-threaded workloads (0.68--0.97$\times$) and consistently
 exceeds tmpfs on multi-threaded workloads (up to 1.73$\times$).
 Rewrites match or beat tmpfs across all block sizes, demonstrating
 that the per-inode xarray cache eliminates overlay lookup overhead on
-the steady-state data path.  Critically, \daxfs achieves these results
+the steady-state data path.  Notably, \daxfs achieves these results
 while simultaneously supporting multi-host writes, shared caching, and
 lock-free writes; capabilities that tmpfs cannot provide.
 
