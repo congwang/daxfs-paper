@@ -979,27 +979,8 @@ filesystem interface to CXL shared memory, supporting multiple hosts
 mounting the same DAX region.  However, FamFS uses a single-master
 log-replay model: one designated host pre-allocates files and clients
 replay its metadata log.  Clients cannot create, append, truncate, or
-delete files, and there is no shared cache or CXL-atomic coordination.
-Table~\ref{tab:famfs-comparison} summarizes the differences.
-
-\begin{table}[t]
-\centering
-\footnotesize
-\caption{Architectural comparison of \daxfs and FamFS.}
-\label{tab:famfs-comparison}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Aspect} & \textbf{\daxfs} & \textbf{FamFS} \\
-\midrule
-Coordination    & Peer-to-peer \texttt{cmpxchg} & Single master log \\
-Writes          & Any host, lock-free CAS        & Master only \\
-Shared cache    & Cooperative pcache             & None \\
-File ops        & Create/read/write/delete       & Pre-allocate only \\
-CXL atomics     & Core design primitive          & Not used \\
-GPU zero-copy   & dma-buf P2P                    & Not supported \\
-\bottomrule
-\end{tabular}
-\end{table}
+delete files, and there is no shared cache or CXL-atomic coordination
+(see Table~\ref{tab:feature-matrix} for a feature comparison).
 
 \paragraph{Distributed filesystems.}
 GFS~\cite{ghemawat03:gfs}, CephFS~\cite{weil06:ceph},
@@ -1007,16 +988,10 @@ Lustre~\cite{schwan03:lustre}, Orion~\cite{yang20:orion}, and
 Assise~\cite{anderson20:assise} use message-passing or RPC, adding
 $\mu$s-scale latency that CXL shared memory makes unnecessary.
 
-\paragraph{GPU storage systems.}
-GPUDirect Storage~\cite{gpudirect:storage} DMA-transfers from NVMe
-to GPU memory but requires a block device and cannot participate in
-filesystem coordination.  BaM~\cite{bam23:gpussd} similarly operates
-at the block layer.  GPUOS~\cite{gpuos:repo} provides GPU-side OS
-abstractions.  \daxfs takes a different approach: it exports the DAX
-region via \texttt{dma-buf}, enabling P2P reads from CXL memory to
-GPU over the PCIe fabric.
-
-\paragraph{Other related work.}
+\paragraph{GPU storage and other related work.}
+GPUDirect Storage~\cite{gpudirect:storage} and BaM~\cite{bam23:gpussd}
+operate at the block layer; \daxfs instead exports DAX memory via
+\texttt{dma-buf} for P2P reads over PCIe.
 EROFS~\cite{gao20:erofs} and Slacker~\cite{harter16:slacker} focus on
 read-only image distribution; neither supports multi-host writes.
 \daxfs's overlay draws on lock-free hash table
@@ -1054,21 +1029,11 @@ deleted entries, but the pool itself is not compacted.  Long-running
 workloads with heavy churn may fragment the pool.  Online compaction
 is possible future work.
 
-\paragraph{GPU write path.}
-The current GPU integration supports read-only access to the page cache
-and coordination state.  GPU-initiated writes to the hash overlay
-are architecturally possible (the same \texttt{atomicCAS} protocol
-applies) but are not yet implemented, as the primary use case (loading
-model weights and datasets) is read-dominated.  Extending the GPU
-library with write support is straightforward future work.
-
-\paragraph{PCIe AtomicOp requirements.}
-GPU-side coordination requires PCIe AtomicOp routing to be enabled in
-the platform firmware and the PCIe switch (if present).  On platforms
-where AtomicOps are disabled, GPU \texttt{atomicCAS} operations may
-silently fail or trap.  \daxfs's GPU mapping library checks for
-AtomicOp capability at initialization and falls back to CPU-mediated
-access if unavailable.
+\paragraph{GPU access scope.}
+The current GPU integration supports read-only access via
+\texttt{dma-buf}.  GPU-initiated writes are architecturally possible
+but are not yet implemented, as the primary use case of model and
+dataset loading is read-dominated.
 
 \paragraph{POSIX compliance gaps.}
 \daxfs does not support \texttt{mknod} (device nodes, FIFOs, sockets)
@@ -1170,11 +1135,6 @@ X.~Gao, M.~Dong, S.~Miao, W.~Du, C.~Yu, and H.~Chen.
 \newblock {\em NVIDIA Developer Documentation}, 2023.
 \newblock \url{https://developer.nvidia.com/gpudirect-storage}.
 
-\bibitem{gpuos:repo}
-{Multi-V-VM}.
-\newblock {GPUOS}: Persistent kernel abstractions for {GPU}-side {OS}
-  services.
-\newblock \url{https://github.com/Multi-V-VM/GPUOS}.
 
 \bibitem{ghemawat03:gfs}
 S.~Ghemawat, H.~Gobioff, and S.-T.~Leung.
