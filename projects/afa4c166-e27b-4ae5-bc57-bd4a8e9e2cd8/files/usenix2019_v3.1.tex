@@ -246,16 +246,20 @@ When the memory is already directly accessible via CXL, a network
 filesystem negates the entire benefit of disaggregated memory.
 
 \paragraph{GPU Data Path Overhead.}
-GPU workloads are the largest consumers of bulk filesystem data.
-Loading a 70B-parameter LLM at FP16 requires reading 140\,GB from
+GPU inference workloads must bulk-load model weights on every cold
+start.  A 70B-parameter LLM at FP16 requires reading 140\,GB from
 the filesystem into GPU memory.  The conventional path is:
 (1)~\texttt{read()} copies file data from the kernel page cache to a
 user-space buffer; (2)~\texttt{cudaMemcpy()} copies the buffer across
 PCIe to the GPU.  Each gigabyte crosses the CPU twice and the PCIe bus
-once.  GPUDirect Storage~\cite{gpudirect:storage} bypasses the CPU by
-DMA-ing from an NVMe device directly to GPU memory, but it still
-requires a block device, cannot participate in filesystem coordination,
-and does not support shared multi-host access.
+once.  Using \texttt{mmap()} avoids the \texttt{read()} syscall but not
+the GPU copy: GPU DMA requires physically contiguous (or
+IOMMU-contiguous) memory, so mmap'd pages must still be pinned and
+copied via \texttt{cudaMemcpy()}.  GPUDirect
+Storage~\cite{gpudirect:storage} bypasses the CPU by DMA-ing from an
+NVMe device directly to GPU memory, but it still requires a block
+device, cannot participate in filesystem coordination, and does not
+support shared multi-host access.
 
 CXL shared memory and GPUs already share the same PCIe fabric.  PCIe
 3.0+ supports AtomicOp Transaction Layer Packets (TLPs), including
