@@ -69,8 +69,7 @@ exceeds tmpfs across most workloads: $1.10\times$ sequential read
 throughput at 1\,MB block size, $1.73\times$ random write throughput at
 4\,KB with 4 threads, and $1.15\times$ random read throughput at 64\,KB
 with 4 threads.  \daxfs is the first filesystem to provide a shared,
-writable namespace across CXL hosts with lock-free coordination and no
-locks on the data path.
+writable namespace across CXL hosts with no locks on the data path.
 
 \end{abstract}
 
@@ -140,9 +139,7 @@ P2P zero-copy reads over the PCIe fabric (\S\ref{sec:gpu}).
 \caption{Feature comparison of \daxfs with existing filesystems.
   ``Partial'' indicates DAX support exists but the filesystem still
   maintains significant metadata structures (NOVA, PMFS) or is
-  read-only (EROFS).  FamFS supports multi-host mount but uses
-  single-master metadata with no concurrent writes, no shared caching,
-  and no file mutation from client hosts.}
+  read-only (EROFS).}
 \label{tab:feature-matrix}
 \begin{tabular}{@{}l@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{}}
 \toprule
@@ -469,9 +466,8 @@ The state machine uses three states encoded in the low 2 bits:
 \end{center}
 
 Bits [5:2] hold a 4-bit refcount (0--15 concurrent readers),
-and the upper 58 bits encode the tag:
-\texttt{(ino $\ll$ 20) | pgoff}, identifying which file page this
-slot caches.  Packing state, refcount, and tag into a single 64-bit
+and the upper 58 bits encode the tag identifying which file page this
+slot caches (\S\ref{sec:overlay}).  Packing state, refcount, and tag into a single 64-bit
 word allows a single \texttt{cmpxchg} to atomically update all three
 fields, which is essential for lock-free multi-host coordination.
 
@@ -538,8 +534,7 @@ numbers namespaced per file.
 \subsection{Cross-Host Coherency}
 \label{sec:coherency}
 
-Because \daxfs uses \texttt{cmpxchg} on CXL-coherent memory for all
-state transitions, cross-host coherency is provided by hardware.
+Cross-host coherency follows from CXL hardware coherence.
 Two specific mechanisms warrant discussion:
 
 \paragraph{i\_size coherency.}
@@ -717,11 +712,8 @@ interface introduced in Linux~5.6.
 \item \textbf{DMA buffer.}  Using the \texttt{fsopen} API, a
   user-space process passes a dma-buf file descriptor via
   \texttt{FSCONFIG\_SET\_FD}.  \daxfs calls \texttt{dma\_buf\_vmap()}
-  to obtain a kernel virtual mapping.  This is also the path through
-  which GPU accelerators gain access: the same dma-buf fd is imported
-  into CUDA via \texttt{cuImportExternalMemory}, giving the GPU a
-  device pointer into the identical physical pages
-  (\S\ref{sec:gpu}).
+  to obtain a kernel virtual mapping.  This path also enables
+  GPU zero-copy access (\S\ref{sec:gpu}).
 \end{itemize}
 
 Both modes bypass the kernel's \texttt{dax\_device} abstraction entirely,
