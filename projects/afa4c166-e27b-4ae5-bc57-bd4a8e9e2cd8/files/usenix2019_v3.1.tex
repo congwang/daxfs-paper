@@ -49,8 +49,8 @@ Anonymous Authors
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-CXL (Compute Express Link) enables multiple hosts---and their
-accelerators---to share byte-addressable memory with hardware cache
+CXL (Compute Express Link) enables multiple hosts (and their
+accelerators) to share byte-addressable memory with hardware cache
 coherence.  Modern GPU-accelerated workloads such as LLM inference and
 training must load hundreds of gigabytes of model weights and datasets
 from storage, yet the data path from filesystem to GPU still traverses
@@ -61,7 +61,7 @@ lets a GPU participate directly in filesystem coordination.
 We present \daxfs, a Linux filesystem designed for CXL shared memory
 with native GPU zero-copy access.  \daxfs maps directly onto
 byte-addressable DAX memory and uses \texttt{cmpxchg} atomic
-operations---which CXL makes coherent across host boundaries---as its
+operations, which CXL makes coherent across host boundaries, as its
 sole coordination primitive.  A CAS-based hash overlay enables lock-free
 concurrent writes from multiple hosts without any centralized
 coordinator.  A shared page cache in DAX memory provides cooperative
@@ -70,7 +70,7 @@ exports the DAX region to GPUs via \texttt{dma-buf}, and provides a
 CUDA device-side coordination library that uses PCIe AtomicOp TLPs
 (\texttt{atomicCAS}, \texttt{\_\_threadfence\_system}) to let GPU
 threads directly look up the shared page cache, claim cache slots, and
-detect commit-sequence changes---all without CPU involvement or kernel
+detect commit-sequence changes, all without CPU involvement or kernel
 transitions.
 
 On a 48-core Intel Xeon with DRAM-backed DAX memory, \daxfs matches or
@@ -107,7 +107,7 @@ accelerators are the dominant consumers of large-scale data: a single
 LLM training job reads terabytes of model checkpoints and datasets, and
 inference serving loads 140\,GB+ model weights on every cold start.
 Today, this data must flow \emph{filesystem $\to$ kernel page cache
-$\to$ user buffer $\to$ \texttt{cudaMemcpy} $\to$ GPU memory}---a path
+$\to$ user buffer $\to$ \texttt{cudaMemcpy} $\to$ GPU memory}, a path
 that crosses the kernel twice, copies data at least twice, and cannot
 exploit the fact that CXL memory is already on the same PCIe fabric as
 the GPU.
@@ -151,8 +151,8 @@ primitive.  It introduces four key mechanisms:
 \item \textbf{GPU zero-copy access via PCIe atomics.}  \daxfs exports
   the DAX region to GPUs through \texttt{dma-buf} and provides a
   CUDA device-side library (\texttt{daxfs\_gpu.h}) that uses PCIe
-  AtomicOp TLPs---the same compare-and-swap operations that CXL hosts
-  use---to let GPU threads directly look up the shared page cache,
+  AtomicOp TLPs (the same compare-and-swap operations that CXL hosts
+  use) to let GPU threads directly look up the shared page cache,
   claim cache slots, and detect commits, all without CPU involvement.
 
 \item \textbf{Flat validated format.}  Fixed-size inodes and flat
@@ -623,7 +623,7 @@ DAX memory.  PCIe~3.0+ supports AtomicOp Transaction Layer Packets
 serialized at the memory controller alongside CPU \texttt{LOCK CMPXCHG}
 instructions.  An NVIDIA GPU executing \texttt{atomicCAS} on a
 device pointer that maps to DAX memory therefore participates in the
-same atomic protocol as CPU hosts---no software bridge required.
+same atomic protocol as CPU hosts, requiring no software bridge.
 
 \subsubsection{Memory Mapping}
 
@@ -693,7 +693,7 @@ protocol that requires no kernel transitions:
 \item \textbf{Fast-path lookup.}  The GPU reads the slot's
   \texttt{state\_tag} via a volatile load.  If the state is VALID and
   the tag matches the desired \texttt{(ino $\ll$ 20) | pgoff}, the GPU
-  reads data directly from the slot---a cache hit with zero atomics.
+  reads data directly from the slot, a cache hit with zero atomics.
 
 \item \textbf{Claim a FREE slot.}  If no matching VALID slot exists,
   the GPU atomically CAS-transitions a FREE slot to PENDING with the
@@ -718,8 +718,8 @@ GPU threads detect filesystem commits by reading the global
 \texttt{commit\_seq} counter via a volatile load.  When a CPU host
 commits a speculative branch, it increments \texttt{commit\_seq} with
 an atomic add.  GPU-side agents can poll this counter to detect
-invalidation events---for example, discarding a prefetched model
-checkpoint when a newer version is committed---without any CPU
+invalidation events (for example, discarding a prefetched model
+checkpoint when a newer version is committed) without any CPU
 notification or interrupt.
 
 \subsection{On-Disk Format}
@@ -886,8 +886,8 @@ key findings below.
 \textbf{Writes.}  First-write throughput ranges from 0.81--0.97$\times$
 tmpfs across block sizes.  The gap reflects per-page overlay allocation
 (CAS-based hash insert + bump-pool atomic) required on the first write
-to each page.  \daxfs uses batch pool allocation---a single
-\texttt{fetch\_add} reserves $N$ entries---to amortise the cost for
+to each page.  \daxfs uses batch pool allocation (a single
+\texttt{fetch\_add} reserves $N$ entries) to amortise the cost for
 multi-page writes.  On rewrites (all pages cached in the per-inode
 xarray), \daxfs matches or exceeds tmpfs: 1.15$\times$ at 4\,KB and
 1.00$\times$ at 1\,MB.  The rewrite advantage at small block sizes comes
@@ -973,7 +973,7 @@ Rewrites match or beat tmpfs across all block sizes, demonstrating
 that the per-inode xarray cache eliminates overlay lookup overhead on
 the steady-state data path.  Critically, \daxfs achieves these results
 while simultaneously supporting multi-host writes, shared caching, and
-lock-free writes---capabilities that tmpfs cannot provide.
+lock-free writes; capabilities that tmpfs cannot provide.
 
 \begin{figure}[t]
 \centering
@@ -981,8 +981,8 @@ lock-free writes---capabilities that tmpfs cannot provide.
 \caption{Sequential read throughput comparison across filesystems.
   Left: 16\,MB sequential read (\texttt{seq16m.dat}); right: 1\,MB
   sequential read (\texttt{f1.dat}).  \daxfs achieves 106.7\,MB/s on
-  the large sequential workload---4.1$\times$ ext4-dax and
-  22.2$\times$ NOVA---and matches tmpfs on the 1\,MB file
+  the large sequential workload (4.1$\times$ ext4-dax and
+  22.2$\times$ NOVA) and matches tmpfs on the 1\,MB file
   (100\,MB/s each), demonstrating that the lock-free overlay adds
   negligible overhead once pages are cached in the per-inode xarray.}
 \label{fig:read-throughput}
@@ -992,7 +992,7 @@ lock-free writes---capabilities that tmpfs cannot provide.
 \centering
 \includegraphics[width=\columnwidth]{read_latency.png}
 \caption{Sequential read latency comparison (lower is better).
-  \daxfs completes a 16\,MB read in 153.6\,ms---4.1$\times$ faster
+  \daxfs completes a 16\,MB read in 153.6\,ms, 4.1$\times$ faster
   than ext4-dax and 21.8$\times$ faster than NOVA.  On 1\,MB files,
   \daxfs and tmpfs both finish in 14\,ms.}
 \label{fig:read-latency}
@@ -1036,8 +1036,8 @@ read), reflecting memory-controller serialization.  Lock
 acquire+release costs 2,048\,ns.
 
 \textbf{Page cache lookup} (Figure~\ref{fig:gpu-bench}, top-center
-and bottom-right).  The fast path---a volatile read plus tag
-comparison---scales near-linearly to 8 threads ($\sim$8\,Mops/s),
+and bottom-right).  The fast path (a volatile read plus tag
+comparison) scales near-linearly to 8 threads ($\sim$8\,Mops/s),
 reaching 500+\,Mops/s at 1,024 threads.  Per-op latency drops from
 910\,ns (1~thread) to under 2\,ns (1,024~threads) as the GPU's warp
 scheduler amortizes PCIe latency across concurrent outstanding
@@ -1094,7 +1094,7 @@ end-to-end benefit of \daxfs's GPU zero-copy path for loading a
 (\texttt{read()} + \texttt{cudaMemcpy}) performs two copies: kernel
 page cache to user buffer ($\sim$12\,GB/s for large sequential reads)
 and user buffer to GPU via PCIe~5.0 ($\sim$50\,GB/s unidirectional).
-With \daxfs, the GPU reads directly from DAX memory over PCIe---a
+With \daxfs, the GPU reads directly from DAX memory over PCIe, a
 single copy at PCIe bandwidth.  For 140\,GB of VALID page cache data,
 \daxfs's GPU path requires 140\,GB / 50\,GB/s $\approx$ 2.8\,s,
 whereas the conventional two-copy path requires at least
@@ -1219,8 +1219,8 @@ is possible future work.
 The current GPU integration supports read-only access to the page cache
 and coordination state.  GPU-initiated writes to the hash overlay
 are architecturally possible (the same \texttt{atomicCAS} protocol
-applies) but are not yet implemented, as the primary use case---loading
-model weights and datasets---is read-dominated.  Extending the GPU
+applies) but are not yet implemented, as the primary use case (loading
+model weights and datasets) is read-dominated.  Extending the GPU
 library with write support is straightforward future work.
 
 \paragraph{PCIe AtomicOp requirements.}
@@ -1243,7 +1243,7 @@ shared caching) where these features are rarely needed.
 %-------------------------------------------------------------------------------
 
 CXL shared memory enables a new filesystem design point: multiple
-hosts---and their GPU accelerators---sharing a single namespace and
+hosts (and their GPU accelerators) sharing a single namespace and
 cache through hardware-coherent load/store operations, with no network
 protocol overhead.  \daxfs exploits this by using \texttt{cmpxchg} as
 its sole coordination primitive, achieving lock-free concurrent writes,
@@ -1258,7 +1258,7 @@ $1.73\times$ higher random write throughput with 4 threads and
 $1.15\times$ higher random read throughput at 64\,KB.  GPU
 microbenchmarks on an RTX~5090 demonstrate that page cache lookups
 scale to over 500\,Mops/s at 1,024 GPU threads, and slot CAS
-operations saturate the PCIe~5.0 AtomicOp bandwidth limit---confirming
+operations saturate the PCIe~5.0 AtomicOp bandwidth limit, confirming
 that the GPU coordination path is hardware-limited, not
 software-limited.  As CXL~3.0 hardware and GPU-accelerated workloads
 continue to grow, \daxfs provides a ready filesystem layer that
