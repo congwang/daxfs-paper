@@ -49,15 +49,9 @@ Anonymous Authors
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-CXL (Compute Express Link) enables multiple hosts---and their
-accelerators---to share byte-addressable memory with hardware cache
-coherence.  Modern GPU-accelerated workloads such as LLM inference and
-training must load hundreds of gigabytes of model weights and datasets
-from storage, yet the data path from filesystem to GPU still traverses
-the CPU: the kernel reads pages into DRAM, then the GPU runtime copies
-them over PCIe.  No existing filesystem eliminates this double copy,
-lets a GPU participate directly in filesystem coordination, or provides
-multi-tenant isolation when multiple GPU workloads share CXL memory.
+CXL (Compute Express Link) enables multiple hosts to share
+byte-addressable memory with hardware cache coherence, but no existing
+filesystem exploits this for lock-free multi-host coordination.
 
 We present \daxfs, a Linux filesystem designed for CXL shared memory
 with GPU P2PDMA access and multi-tenant isolation.  \daxfs maps
@@ -71,16 +65,6 @@ CXL memory regions via P2PDMA ioctls: \texttt{mmap} of the DAX region
 flows through the CPU for permission validation, while GPU threads
 access file data through explicit Copy Engine read/write calls that
 enforce per-tenant buffer isolation at the GPU driver level.
-
-On a 48-core Intel Xeon with DRAM-backed DAX memory, \daxfs matches or
-exceeds tmpfs across most workloads: $1.73\times$ random write
-throughput at 4\,KB with 4 threads and $1.15\times$ random read
-throughput at 64\,KB.  GPU page cache lookups on an RTX~5090 via
-PCIe~5.0 achieve over 500\,Mops/s at 1,024 threads, and slot CAS
-operations saturate the PCIe AtomicOp bandwidth limit at
-11.5\,Mops/s.  \daxfs is the first filesystem to provide a
-shared, multi-tenant namespace across CXL hosts \emph{and} GPU
-accelerators with zero-copy access and no locks on the data path.
 
 \end{abstract}
 
@@ -100,15 +84,7 @@ with storage-scale capacity.
 CXL~3.0 extends this model to \emph{multiple hosts}: its Global Fabric
 Attached Memory (GFAM) lets independent servers perform hardware-coherent
 atomic operations on the same memory, without a network stack or
-software coherence protocol (\S\ref{sec:motivation}).  Meanwhile, GPU
-accelerators are the dominant consumers of large-scale data: a single
-LLM training job reads terabytes of model checkpoints and datasets, and
-inference serving loads 140\,GB+ model weights on every cold start.
-Today, this data must flow \emph{filesystem $\to$ kernel page cache
-$\to$ user buffer $\to$ \texttt{cudaMemcpy} $\to$ GPU memory}---a path
-that crosses the kernel twice, copies data at least twice, and cannot
-exploit the fact that CXL memory is already on the same PCIe fabric as
-the GPU.
+software coherence protocol (\S\ref{sec:motivation}).
 
 While applications could access CXL memory through raw \texttt{mmap},
 practical workloads require filesystem semantics: hierarchical naming,
@@ -117,7 +93,6 @@ lifecycle.  Container runtimes and ML serving frameworks consume data
 through file paths; replacing these interfaces with a custom
 shared-memory API is impractical.  Key scenarios include multi-host
 LLM inference (sharing model weights without per-host duplication),
-GPU training pipelines (reading datasets directly from shared memory),
 container rootfs sharing ($N$ containers backed by a single copy), and
 CXL memory pooling across hosts.
 
@@ -126,17 +101,13 @@ No existing filesystem fills this role
 state across hosts; distributed filesystems add network overhead that
 CXL should eliminate; FamFS~\cite{groves24:Famfs} targets CXL but
 restricts writes to a single master (\S\ref{sec:motivation}).
-None support GPU-direct data access or multi-tenant isolation.
 
 We present \daxfs, a Linux kernel filesystem module for CXL shared
 memory with GPU P2PDMA access and multi-tenant isolation.  \daxfs
 treats byte-addressable memory as the storage medium and uses
-\texttt{cmpxchg} on CXL-coherent memory as its sole coordination
-primitive.  It introduces four key mechanisms:
-
-\begin{enumerate}
+memory with native GPU accelerator support.  \daxfs treats
+byte-addressable memory as the storage medium and uses
 \item \textbf{CAS-based hash overlay.}  An open-addressing hash table
-  where bucket insertions use a single 64-bit \texttt{cmpxchg}.
   No locks, no log, no journal.  Multiple hosts insert concurrently
   with linearizable semantics.
 
@@ -158,23 +129,23 @@ primitive.  It introduces four key mechanisms:
   complete mount-time validation in a single bounded pass.
 \end{enumerate}
 
+Additionally, because \daxfs operates directly on DAX memory, it
+exports the filesystem region to GPUs via \texttt{dma-buf}, enabling
+P2P zero-copy reads over the PCIe fabric (\S\ref{sec:gpu}).
+
 \begin{table*}[t]
 \centering
 \footnotesize
 \caption{Feature comparison of \daxfs with existing filesystems.
   ``Partial'' indicates DAX support exists but the filesystem still
   maintains significant metadata structures (NOVA, PMFS) or is
-  read-only (EROFS).  FamFS supports multi-host mount but uses
-  single-master metadata with no concurrent writes, no shared caching,
-  and no file mutation from client hosts.  Only \daxfs supports GPU
-  zero-copy data access and GPU-side cache coordination.}
+  read-only (EROFS).}
 \label{tab:feature-matrix}
 \begin{tabular}{@{}l@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{}}
 \toprule
 \textbf{Property} & \textbf{\daxfs} & \textbf{NOVA} & \textbf{PMFS} & \textbf{FamFS} & \textbf{ext4-dax} & \textbf{EROFS} & \textbf{OverlayFS} \\
 \midrule
 Zero-copy DAX reads          & \cmark & Partial & Partial & \cmark & \cmark & Partial & \xmark \\
-No page cache overhead       & \cmark & \cmark  & \cmark  & \cmark & \cmark & \cmark  & \xmark \\
 Multi-host concurrent writes & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
 Lock-free data path          & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
 Shared cache across hosts    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
@@ -183,7 +154,6 @@ GPU zero-copy data access    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \x
 GPU-side cache coordination  & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
 Multi-tenant GPU isolation   & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
 Layered storage (base+overlay) & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark  & \cmark \\
-File create/append/delete    & \cmark & \cmark  & \cmark  & \xmark & \cmark & \xmark  & \cmark \\
 Self-contained image         & \cmark & \xmark  & \xmark  & \xmark & \xmark & \cmark  & N/A    \\
 Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \cmark  & N/A    \\
 \bottomrule
@@ -209,17 +179,19 @@ the same address.  This primitive is the foundation of \daxfs's
 coordination model.
 
 This hardware capability creates a new design point for shared data
-access, but also exposes a gap in existing system software.  We
-identify three fundamental problems that collectively require a new
-filesystem design.
+access, analogous to the multikernel problem~\cite{baumann09:multikernel}
+where independent OS instances coordinate through shared memory rather
+than message passing.  However, existing system software is not prepared
+for this model.  We identify three fundamental problems that
+collectively require a new filesystem design.
 
 \paragraph{Per-Host Duplication.}
 tmpfs, ext4-dax, and NOVA each maintain per-host metadata (superblock,
 inode cache, dentry cache) and per-host page caches.  Even if two hosts
 map the same physical memory, each host instantiates independent VFS
 state.  When 8 hosts serve the same LLM model, this means 8 copies of
-the page cache metadata and 8 independent directory caches, a pure
-waste of CXL memory capacity.  A single 70B-parameter model at FP16
+the page cache metadata and 8 independent directory caches, wasting
+CXL memory capacity.  A single 70B-parameter model at FP16
 occupies 140\,GB; a pool serving $N$ tenants cannot afford $N$ copies.
 
 \paragraph{No Multi-Host Coordination.}
@@ -302,12 +274,11 @@ These observations lead to six design requirements:
 \label{sec:design}
 %-------------------------------------------------------------------------------
 
-\daxfs is designed around four principles: (1)~\emph{memory is the
+\daxfs is designed around three principles: (1)~\emph{memory is the
 storage}, not a cache for a block device; (2)~\emph{reads should be
-free}, resolving to direct pointer dereferences; (3)~\emph{coordination
-uses only hardware atomics}, with no locks on the data path; and
-(4)~\emph{any PCIe agent that can issue AtomicOps should be a
-first-class participant}, including GPU threads.
+free}, resolving to direct pointer dereferences; and
+(3)~\emph{coordination uses only hardware atomics}, with no locks on
+the data path.
 
 \subsection{Architecture Overview}
 
@@ -406,6 +377,43 @@ supports three operating modes depending on which regions are present:
   no base image, all content written through the overlay.
 \end{itemize}
 
+\subsection{On-Disk Format}
+\label{sec:format}
+
+\daxfs uses a deliberately simple flat format designed for safe
+handling of untrusted images and efficient direct access.  The four
+regions (superblock, base image, hash overlay, page cache) are laid
+out sequentially; each region uses a 4\,KB header with magic numbers
+and size fields for independent validation.
+
+\subsubsection{Flat Directory Format}
+
+Directories store fixed-size entries of 271 bytes each (the
+\texttt{daxfs\_dirent} structure), containing a name length, an inode
+number, a parent inode number, and a 254-byte inline name.  Unlike
+pointer-based directory formats (htree in ext4, B-tree in Btrfs),
+flat arrays have no cycles or dangling pointers, support bounded
+iteration with a known upper bound, and can be fully validated in a
+single sequential pass at mount time.
+
+\subsubsection{Overlay Pool Entries}
+
+Pool entries are typed and variable-size:
+
+\begin{itemize}
+\item \textbf{Inode entry (32\,B):}  Mode, uid, gid, size, timestamps.
+\item \textbf{Data entry (4\,KB + 8\,B):}  A type header followed by a
+  4\,KB page of file data (COW granularity).
+\item \textbf{Dirent entry ($\sim$280\,B):}  Parent inode, name, target
+  inode, mode, and a tombstone flag for deletions.
+\item \textbf{Dirlist entry (16\,B):}  Per-directory list head linking
+  overlay dirents.
+\end{itemize}
+
+Each entry type has a per-type free list for recycling.  The free list
+head is stored in the overlay header and updated via \texttt{cmpxchg},
+making recycling lock-free across hosts.
+
 \subsection{Zero-Copy Read Path}
 \label{sec:zero-copy}
 
@@ -481,8 +489,8 @@ To insert a new entry, a host:
   repeat.
 \end{enumerate}
 
-This protocol is lock-free: no host can block another.  Under hash
-collision, it degrades gracefully with bounded probing.
+This protocol is lock-free: no host can block another.  Hash
+collisions are resolved by linear probing within the table.
 
 \subsubsection{Pool Allocator}
 
@@ -495,7 +503,7 @@ off = atomic_fetch_add(&hdr->pool_alloc,
                        size);
 \end{lstlisting}
 
-This is a single atomic operation, contention-free across hosts.
+This is a single atomic operation with minimal contention across hosts.
 Freed entries are recycled through per-type lock-free free lists (CAS
 on list head), avoiding pool exhaustion for long-running workloads.
 
@@ -536,9 +544,8 @@ The state machine uses three states encoded in the low 2 bits:
 \end{center}
 
 Bits [5:2] hold a 4-bit refcount (0--15 concurrent readers),
-and the upper 58 bits encode the tag:
-\texttt{(ino $\ll$ 20) | pgoff}, identifying which file page this
-slot caches.  Packing state, refcount, and tag into a single 64-bit
+and the upper 58 bits encode the tag identifying which file page this
+slot caches (\S\ref{sec:overlay}).  Packing state, refcount, and tag into a single 64-bit
 word allows a single \texttt{cmpxchg} to atomically update all three
 fields, which is essential for lock-free multi-host coordination.
 
@@ -587,7 +594,7 @@ atomic \texttt{evict\_hand} counter by 64 slots using
 \texttt{cmpxchg}; the host that wins the CAS clears
 \texttt{ref\_bit} on all VALID slots in that window.  Hosts that
 lose the race skip the sweep, ensuring that only one host clears
-each window and ref\_bits decay at a controlled rate even under
+each window and \texttt{ref\_bit} values decay at a controlled rate even under
 contention.
 
 The refcount in \texttt{state\_tag} ensures that slots actively
@@ -605,8 +612,7 @@ numbers namespaced per file.
 \subsection{Cross-Host Coherency}
 \label{sec:coherency}
 
-Because \daxfs uses \texttt{cmpxchg} on CXL-coherent memory for all
-state transitions, cross-host coherency is provided by hardware.
+Cross-host coherency follows from CXL hardware coherence.
 Two specific mechanisms warrant discussion:
 
 \paragraph{i\_size coherency.}
@@ -766,11 +772,8 @@ interface introduced in Linux~5.6.
 \item \textbf{DMA buffer.}  Using the \texttt{fsopen} API, a
   user-space process passes a dma-buf file descriptor via
   \texttt{FSCONFIG\_SET\_FD}.  \daxfs calls \texttt{dma\_buf\_vmap()}
-  to obtain a kernel virtual mapping.  This is also the path through
-  which GPU accelerators gain access: the same dma-buf fd is imported
-  into CUDA via \texttt{cuImportExternalMemory}, giving the GPU a
-  device pointer into the identical physical pages
-  (\S\ref{sec:gpu}).
+  to obtain a kernel virtual mapping.  This path also enables
+  GPU zero-copy access (\S\ref{sec:gpu}).
 \end{itemize}
 
 Both modes bypass the kernel's \texttt{dax\_device} abstraction entirely,
@@ -811,14 +814,6 @@ Data resolution on every read path calls
 on the overlay's size field, ensuring cross-host coherency of file
 sizes without explicit invalidation.
 
-\subsection{Kernel Compatibility and Tools}
-
-\daxfs supports Linux 5.4 through 6.x via a compatibility layer that
-provides shims for API changes across kernel versions.  The userspace
-toolchain includes \textbf{mkdaxfs} for creating filesystem images
-from directory trees (supporting static, split, and empty modes) and
-\textbf{daxfs-inspect} for read-only inspection of mounted instances.
-
 \subsection{Mount-Time Validation}
 
 The flat format (\S\ref{sec:format}) enables complete image validation
@@ -829,18 +824,35 @@ of pointer-based structures eliminates cycle injection, dangling
 pointer exploitation, and unbounded traversal, which is important for
 mounting untrusted images in container environments.
 
+\subsection{Kernel Compatibility and Tools}
+
+\daxfs supports Linux 5.4 through 6.x via a compatibility layer that
+provides shims for API changes across kernel versions.  The userspace
+toolchain includes \textbf{mkdaxfs} for creating filesystem images
+from directory trees (supporting static, split, and empty modes) and
+\textbf{daxfs-inspect} for read-only inspection of mounted instances.
+
+\subsection{GPU Mapping Library}
+
+A user-space library (\texttt{daxfs-gpu-map.\{c,h\}}) encapsulates the
+GPU mapping path described in \S\ref{sec:gpu}.  After mapping,
+the library queries \texttt{DAXFS\_IOC\_GET\_GPU\_INFO} and returns a
+\texttt{daxfs\_gpu\_ctx} structure containing device pointers to the
+page cache metadata and data area.  CUDA kernels receive this context
+as a launch parameter.
+
 %-------------------------------------------------------------------------------
 \section{Evaluation}
 \label{sec:evaluation}
 %-------------------------------------------------------------------------------
 
-We evaluate \daxfs in two dimensions: (1)~CPU-side filesystem
-throughput against tmpfs on a single host (\S\ref{sec:seq-throughput}--\S\ref{sec:random-io}),
-and (2)~GPU-side coordination latency and throughput via PCIe AtomicOps
-(\S\ref{sec:gpu-eval}).  tmpfs represents the performance ceiling for
-in-memory filesystems: it runs entirely in DRAM with no persistence,
-no DAX layer, and no sharing overhead.  Multi-host evaluation on CXL
-hardware is discussed in \S\ref{sec:multihost}.
+We evaluate \daxfs's filesystem throughput against tmpfs on a single
+host (\S\ref{sec:seq-throughput}--\S\ref{sec:random-io}) and
+characterize GPU P2P access latency (\S\ref{sec:gpu-eval}).  tmpfs
+represents the performance ceiling for in-memory filesystems: it runs
+entirely in DRAM with no persistence, no DAX layer, and no sharing
+overhead.  Multi-host evaluation on CXL hardware is discussed in
+\S\ref{sec:multihost}.
 
 \subsection{Experimental Setup}
 
@@ -849,9 +861,8 @@ hardware is discussed in \S\ref{sec:multihost}.
 512\,MB contiguous DRAM region allocated at runtime via a CMA-based
 allocator and mapped with \texttt{memremap(MEMREMAP\_WB)}, exercising
 the same write-back-cached code path that CXL memory devices use.
-For GPU benchmarks, the DAX region is additionally mapped into GPU
-address space via pinned host memory
-(\texttt{cuMemHostRegister}/\texttt{cuMemHostGetDevicePointer}).
+For GPU benchmarks, the DAX region is additionally exported to the GPU
+via \texttt{dma-buf} (\S\ref{sec:gpu}).
 
 \textbf{Software.}  Linux 6.19.0-rc5+.  Benchmarks use
 \texttt{fio}~3.x with the synchronous I/O engine.  Each test writes a
@@ -873,8 +884,8 @@ key findings below.
 \textbf{Writes.}  First-write throughput ranges from 0.81--0.97$\times$
 tmpfs across block sizes.  The gap reflects per-page overlay allocation
 (CAS-based hash insert + bump-pool atomic) required on the first write
-to each page.  \daxfs uses batch pool allocation---a single
-\texttt{fetch\_add} reserves $N$ entries---to amortise the cost for
+to each page.  \daxfs uses batch pool allocation (a single
+\texttt{fetch\_add} reserves $N$ entries) to amortise the cost for
 multi-page writes.  On rewrites (all pages cached in the per-inode
 xarray), \daxfs matches or exceeds tmpfs: 1.15$\times$ at 4\,KB and
 1.00$\times$ at 1\,MB.  The rewrite advantage at small block sizes comes
@@ -958,9 +969,9 @@ on single-threaded workloads (0.68--0.97$\times$) and consistently
 exceeds tmpfs on multi-threaded workloads (up to 1.73$\times$).
 Rewrites match or beat tmpfs across all block sizes, demonstrating
 that the per-inode xarray cache eliminates overlay lookup overhead on
-the steady-state data path.  Critically, \daxfs achieves these results
+the steady-state data path.  Notably, \daxfs achieves these results
 while simultaneously supporting multi-host writes, shared caching, and
-lock-free writes---capabilities that tmpfs cannot provide.
+lock-free writes; capabilities that tmpfs cannot provide.
 
 \begin{figure}[t]
 \centering
@@ -968,8 +979,8 @@ lock-free writes---capabilities that tmpfs cannot provide.
 \caption{Sequential read throughput comparison across filesystems.
   Left: 16\,MB sequential read (\texttt{seq16m.dat}); right: 1\,MB
   sequential read (\texttt{f1.dat}).  \daxfs achieves 106.7\,MB/s on
-  the large sequential workload---4.1$\times$ ext4-dax and
-  22.2$\times$ NOVA---and matches tmpfs on the 1\,MB file
+  the large sequential workload (4.1$\times$ ext4-dax and
+  22.2$\times$ NOVA) and matches tmpfs on the 1\,MB file
   (100\,MB/s each), demonstrating that the lock-free overlay adds
   negligible overhead once pages are cached in the per-inode xarray.}
 \label{fig:read-throughput}
@@ -979,7 +990,7 @@ lock-free writes---capabilities that tmpfs cannot provide.
 \centering
 \includegraphics[width=\columnwidth]{read_latency.png}
 \caption{Sequential read latency comparison (lower is better).
-  \daxfs completes a 16\,MB read in 153.6\,ms---4.1$\times$ faster
+  \daxfs completes a 16\,MB read in 153.6\,ms, 4.1$\times$ faster
   than ext4-dax and 21.8$\times$ faster than NOVA.  On 1\,MB files,
   \daxfs and tmpfs both finish in 14\,ms.}
 \label{fig:read-latency}
@@ -1023,8 +1034,8 @@ read), reflecting memory-controller serialization.  Lock
 acquire+release costs 2,048\,ns.
 
 \textbf{Page cache lookup} (Figure~\ref{fig:gpu-bench}, top-center
-and bottom-right).  The fast path---a volatile read plus tag
-comparison---scales near-linearly to 8 threads ($\sim$8\,Mops/s),
+and bottom-right).  The fast path (a volatile read plus tag
+comparison) scales near-linearly to 8 threads ($\sim$8\,Mops/s),
 reaching 500+\,Mops/s at 1,024 threads.  Per-op latency drops from
 910\,ns (1~thread) to under 2\,ns (1,024~threads) as the GPU's warp
 scheduler amortizes PCIe latency across concurrent outstanding
@@ -1081,7 +1092,7 @@ end-to-end benefit of \daxfs's GPU zero-copy path for loading a
 (\texttt{read()} + \texttt{cudaMemcpy}) performs two copies: kernel
 page cache to user buffer ($\sim$12\,GB/s for large sequential reads)
 and user buffer to GPU via PCIe~5.0 ($\sim$50\,GB/s unidirectional).
-With \daxfs, the GPU reads directly from DAX memory over PCIe---a
+With \daxfs, the GPU reads directly from DAX memory over PCIe, a
 single copy at PCIe bandwidth.  For 140\,GB of VALID page cache data,
 \daxfs's GPU path requires 140\,GB / 50\,GB/s $\approx$ 2.8\,s,
 whereas the conventional two-copy path requires at least
@@ -1127,28 +1138,8 @@ filesystem interface to CXL shared memory, supporting multiple hosts
 mounting the same DAX region.  However, FamFS uses a single-master
 log-replay model: one designated host pre-allocates files and clients
 replay its metadata log.  Clients cannot create, append, truncate, or
-delete files, and there is no shared cache or CXL-atomic coordination.
-Table~\ref{tab:famfs-comparison} summarizes the differences.
-
-\begin{table}[t]
-\centering
-\footnotesize
-\caption{Architectural comparison of \daxfs and FamFS.}
-\label{tab:famfs-comparison}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Aspect} & \textbf{\daxfs} & \textbf{FamFS} \\
-\midrule
-Coordination    & Peer-to-peer \texttt{cmpxchg} & Single master log \\
-Writes          & Any host, lock-free CAS        & Master only \\
-Shared cache    & Cooperative pcache             & None \\
-File ops        & Create/read/write/delete       & Pre-allocate only \\
-CXL atomics     & Core design primitive          & Not used \\
-GPU P2PDMA      & CXL buffer + CE transfers      & Not supported \\
-Multi-tenant    & Per-handle GPU isolation        & Not supported \\
-\bottomrule
-\end{tabular}
-\end{table}
+delete files, and there is no shared cache or CXL-atomic coordination
+(see Table~\ref{tab:feature-matrix} for a feature comparison).
 
 \paragraph{Distributed filesystems.}
 GFS~\cite{ghemawat03:gfs}, CephFS~\cite{weil06:ceph},
@@ -1156,16 +1147,10 @@ Lustre~\cite{schwan03:lustre}, Orion~\cite{yang20:orion}, and
 Assise~\cite{anderson20:assise} use message-passing or RPC, adding
 $\mu$s-scale latency that CXL shared memory makes unnecessary.
 
-\paragraph{GPU storage systems.}
-GPUDirect Storage~\cite{gpudirect:storage} DMA-transfers from NVMe
-to GPU memory but requires a block device and cannot participate in
-filesystem coordination.  BaM~\cite{bam23:gpussd} similarly operates
-at the block layer.  GPUOS~\cite{gpuos:repo} provides GPU-side OS
-abstractions.  \daxfs instead extends the filesystem's
-\texttt{cmpxchg}-based protocol to GPU threads via PCIe atomics,
-making GPUs first-class coordination participants.
-
-\paragraph{Other related work.}
+\paragraph{GPU storage and other related work.}
+GPUDirect Storage~\cite{gpudirect:storage} and BaM~\cite{bam23:gpussd}
+operate at the block layer; \daxfs instead exports DAX memory via
+\texttt{dma-buf} for P2P reads over PCIe.
 EROFS~\cite{gao20:erofs} and Slacker~\cite{harter16:slacker} focus on
 read-only image distribution; neither supports multi-host writes.
 \daxfs's overlay draws on lock-free hash table
@@ -1203,19 +1188,11 @@ deleted entries, but the pool itself is not compacted.  Long-running
 workloads with heavy churn may fragment the pool.  Online compaction
 is possible future work.
 
-\paragraph{GPU write path.}
-The current GPU P2PDMA integration supports bidirectional CE transfers
-(GPU$\to$CXL and CXL$\to$GPU), but GPU-initiated overlay mutations
-(\eg file creation from a GPU kernel) are not yet implemented.  The
-primary use case---loading model weights and datasets---is
-read-dominated.
-
-\paragraph{P2PDMA requirements.}
-GPU-side CXL access requires the NVIDIA GPU kernel modules with CXL
-P2PDMA patches~\cite{cxlmemuring:gpu} and a platform where PCIe
-AtomicOp routing is enabled in firmware.  The pinned buffer tracker
-enforces system-wide resource limits but does not yet support
-per-tenant quotas; adding per-RM-client limits is straightforward.
+\paragraph{GPU access scope.}
+The current GPU integration supports read-only access via
+\texttt{dma-buf}.  GPU-initiated writes are architecturally possible
+but are not yet implemented, as the primary use case of model and
+dataset loading is read-dominated.
 
 \paragraph{POSIX compliance gaps.}
 \daxfs does not support \texttt{mknod} (device nodes, FIFOs, sockets)
@@ -1229,27 +1206,21 @@ shared caching) where these features are rarely needed.
 %-------------------------------------------------------------------------------
 
 CXL shared memory enables a new filesystem design point: multiple
-hosts---and their GPU accelerators---sharing a single namespace and
-cache through hardware-coherent load/store operations, with no network
-protocol overhead.  \daxfs exploits this by using \texttt{cmpxchg} as
-its sole coordination primitive, achieving lock-free concurrent writes,
-cooperative caching, and zero-copy access in a unified design.  By
-integrating with modified NVIDIA GPU kernel modules for CXL P2PDMA,
-\daxfs provides GPU-direct filesystem access with per-tenant buffer
-isolation enforced at the GPU driver level---ensuring that multi-tenant
-CXL memory sharing remains safe even when GPUs perform direct DMA.
+hosts sharing a single namespace and cache through hardware-coherent
+load/store operations, with no network protocol overhead.  \daxfs
+exploits this by using \texttt{cmpxchg} as its sole coordination
+primitive, achieving lock-free concurrent writes, cooperative caching,
+and zero-copy access in a unified design.  Because the filesystem
+operates directly on DAX memory, GPU accelerators on the same PCIe
+fabric can read file data via \texttt{dma-buf} P2P without
+CPU-mediated copies.
 
 Our evaluation on DRAM-backed DAX memory shows that \daxfs matches or
 exceeds tmpfs throughput on most workloads, achieving up to
 $1.73\times$ higher random write throughput with 4 threads and
-$1.15\times$ higher random read throughput at 64\,KB.  GPU
-microbenchmarks on an RTX~5090 demonstrate that page cache lookups
-scale to over 500\,Mops/s at 1,024 GPU threads, and slot CAS
-operations saturate the PCIe~5.0 AtomicOp bandwidth limit---confirming
-that the GPU coordination path is hardware-limited, not
-software-limited.  As CXL~3.0 hardware and GPU-accelerated workloads
-continue to grow, \daxfs provides a ready filesystem layer that
-unifies host and accelerator access to disaggregated memory pools.
+$1.15\times$ higher random read throughput at 64\,KB.  As CXL~3.0
+hardware matures, \daxfs provides a ready filesystem layer for
+disaggregated memory pools shared across hosts.
 
 %-------------------------------------------------------------------------------
 \section*{Availability}
@@ -1329,11 +1300,6 @@ X.~Gao, M.~Dong, S.~Miao, W.~Du, C.~Yu, and H.~Chen.
 \newblock {\em NVIDIA Developer Documentation}, 2023.
 \newblock \url{https://developer.nvidia.com/gpudirect-storage}.
 
-\bibitem{gpuos:repo}
-{Multi-V-VM}.
-\newblock {GPUOS}: Persistent kernel abstractions for {GPU}-side {OS}
-  services.
-\newblock \url{https://github.com/Multi-V-VM/GPUOS}.
 
 \bibitem{ghemawat03:gfs}
 S.~Ghemawat, H.~Gobioff, and S.-T.~Leung.
@@ -1401,11 +1367,6 @@ H.~Al~Maruf \textit{et al.}
 \newblock In {\em ACM International Conference on Architectural Support for
   Programming Languages and Operating Systems (ASPLOS)}, 2023.
 
-\bibitem{merkel14:docker}
-D.~Merkel.
-\newblock {Docker}: Lightweight {Linux} containers for consistent development
-  and deployment.
-\newblock {\em Linux Journal}, 239:2, 2014.
 
 \bibitem{michael02:lockfree}
 M.~M. Michael.
