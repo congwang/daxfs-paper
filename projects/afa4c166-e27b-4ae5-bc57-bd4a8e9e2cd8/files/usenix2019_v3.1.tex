@@ -336,6 +336,43 @@ supports three operating modes depending on which regions are present:
   no base image, all content written through the overlay.
 \end{itemize}
 
+\subsection{On-Disk Format}
+\label{sec:format}
+
+\daxfs uses a deliberately simple flat format designed for safe
+handling of untrusted images and efficient direct access.  The four
+regions (superblock, base image, hash overlay, page cache) are laid
+out sequentially; each region uses a 4\,KB header with magic numbers
+and size fields for independent validation.
+
+\subsubsection{Flat Directory Format}
+
+Directories store fixed-size entries of 271 bytes each (the
+\texttt{daxfs\_dirent} structure), containing a name length, an inode
+number, a parent inode number, and a 254-byte inline name.  Unlike
+pointer-based directory formats (htree in ext4, B-tree in Btrfs),
+flat arrays have no cycles or dangling pointers, support bounded
+iteration with a known upper bound, and can be fully validated in a
+single sequential pass at mount time.
+
+\subsubsection{Overlay Pool Entries}
+
+Pool entries are typed and variable-size:
+
+\begin{itemize}
+\item \textbf{Inode entry (32\,B):}  Mode, uid, gid, size, timestamps.
+\item \textbf{Data entry (4\,KB + 8\,B):}  A type header followed by a
+  4\,KB page of file data (COW granularity).
+\item \textbf{Dirent entry ($\sim$280\,B):}  Parent inode, name, target
+  inode, mode, and a tombstone flag for deletions.
+\item \textbf{Dirlist entry (16\,B):}  Per-directory list head linking
+  overlay dirents.
+\end{itemize}
+
+Each entry type has a per-type free list for recycling.  The free list
+head is stored in the overlay header and updated via \texttt{cmpxchg},
+making recycling lock-free across hosts.
+
 \subsection{Zero-Copy Read Path}
 \label{sec:zero-copy}
 
@@ -568,44 +605,6 @@ populate the shared page cache through normal filesystem operations;
 GPUs then read cached pages directly from DAX memory via P2P DMA over
 the PCIe fabric, bypassing the CPU.
 
-\subsection{On-Disk Format}
-\label{sec:format}
-
-\daxfs uses a deliberately simple flat format designed for safe
-handling of untrusted images and efficient direct access.  The four
-regions (superblock, base image, hash overlay, page cache) are laid
-out sequentially as described in \S\ref{sec:design}; each region
-uses a 4\,KB header with magic numbers and size fields for
-independent validation.
-
-\subsubsection{Flat Directory Format}
-
-Directories store fixed-size entries of 271 bytes each (the
-\texttt{daxfs\_dirent} structure), containing a name length, an inode
-number, a parent inode number, and a 254-byte inline name.  Unlike
-pointer-based directory formats (htree in ext4, B-tree in Btrfs),
-flat arrays have no cycles or dangling pointers, support bounded
-iteration with a known upper bound, and can be fully validated in a
-single sequential pass at mount time.
-
-\subsubsection{Overlay Pool Entries}
-
-Pool entries are typed and variable-size:
-
-\begin{itemize}
-\item \textbf{Inode entry (32\,B):}  Mode, uid, gid, size, timestamps.
-\item \textbf{Data entry (4\,KB + 8\,B):}  A type header followed by a
-  4\,KB page of file data (COW granularity).
-\item \textbf{Dirent entry ($\sim$280\,B):}  Parent inode, name, target
-  inode, mode, and a tombstone flag for deletions.
-\item \textbf{Dirlist entry (16\,B):}  Per-directory list head linking
-  overlay dirents.
-\end{itemize}
-
-Each entry type has a per-type free list for recycling.  The free list
-head is stored in the overlay header and updated via \texttt{cmpxchg},
-making recycling lock-free across hosts.
-
 %-------------------------------------------------------------------------------
 \section{Implementation}
 \label{sec:impl}
@@ -635,17 +634,6 @@ interface introduced in Linux~5.6.
 Both modes bypass the kernel's \texttt{dax\_device} abstraction entirely,
 mapping memory directly into the filesystem's address space.
 
-\subsection{GPU Mapping Library}
-
-A user-space library (\texttt{daxfs-gpu-map.\{c,h\}}) encapsulates the
-two GPU mapping paths described in \S\ref{sec:gpu}.  After mapping,
-the library queries \texttt{DAXFS\_IOC\_GET\_GPU\_INFO} and returns a
-\texttt{daxfs\_gpu\_ctx} structure containing device pointers to the
-coordination lock, commit sequence counter, page cache metadata, and
-page cache data area.  CUDA kernels receive this context as a launch
-parameter and call the inline device functions from
-\texttt{daxfs\_gpu.h} to interact with the filesystem.
-
 \subsection{VFS Integration}
 
 \daxfs registers standard VFS operations:
@@ -667,14 +655,6 @@ Data resolution on every read path calls
 on the overlay's size field, ensuring cross-host coherency of file
 sizes without explicit invalidation.
 
-\subsection{Kernel Compatibility and Tools}
-
-\daxfs supports Linux 5.4 through 6.x via a compatibility layer that
-provides shims for API changes across kernel versions.  The userspace
-toolchain includes \textbf{mkdaxfs} for creating filesystem images
-from directory trees (supporting static, split, and empty modes) and
-\textbf{daxfs-inspect} for read-only inspection of mounted instances.
-
 \subsection{Mount-Time Validation}
 
 The flat format (\S\ref{sec:format}) enables complete image validation
@@ -684,6 +664,23 @@ bounds, directory entry references, and region overlap.  The absence
 of pointer-based structures eliminates cycle injection, dangling
 pointer exploitation, and unbounded traversal, which is important for
 mounting untrusted images in container environments.
+
+\subsection{Kernel Compatibility and Tools}
+
+\daxfs supports Linux 5.4 through 6.x via a compatibility layer that
+provides shims for API changes across kernel versions.  The userspace
+toolchain includes \textbf{mkdaxfs} for creating filesystem images
+from directory trees (supporting static, split, and empty modes) and
+\textbf{daxfs-inspect} for read-only inspection of mounted instances.
+
+\subsection{GPU Mapping Library}
+
+A user-space library (\texttt{daxfs-gpu-map.\{c,h\}}) encapsulates the
+GPU mapping path described in \S\ref{sec:gpu}.  After mapping,
+the library queries \texttt{DAXFS\_IOC\_GET\_GPU\_INFO} and returns a
+\texttt{daxfs\_gpu\_ctx} structure containing device pointers to the
+page cache metadata and data area.  CUDA kernels receive this context
+as a launch parameter.
 
 %-------------------------------------------------------------------------------
 \section{Evaluation}
