@@ -631,26 +631,13 @@ same atomic protocol as CPU hosts, requiring no software bridge.
 
 \subsubsection{Memory Mapping}
 
-\daxfs provides two paths to map the DAX region into GPU address space:
-
-\begin{itemize}
-\item \textbf{dma-buf path (preferred).}  The kernel exposes a
-  \texttt{dma-buf} file descriptor via the \texttt{DAXFS\_IOC\_GET\_DMABUF}
-  ioctl.  User space imports this fd into CUDA via
-  \texttt{cuImportExternalMemory} (opaque-fd type), then calls
-  \texttt{cuExternalMemoryGetMappedBuffer} to obtain a
-  \texttt{CUdeviceptr}.  This is a true zero-copy path: the GPU reads
-  and writes the same physical pages that the CPU filesystem code uses.
-
-\item \textbf{Physical-address fallback.}  For physical-address-backed
-  mounts, user space opens \texttt{/dev/mem}, \texttt{mmap}s the
-  physical range, then calls \texttt{cuMemHostRegister} with
-  \texttt{CU\_MEMHOSTREGISTER\_DEVICEMAP} followed by
-  \texttt{cuMemHostGetDevicePointer} to obtain the device pointer.
-\end{itemize}
-
-In both cases, the GPU obtains a device pointer into the same physical
-memory that backs the filesystem.  The \texttt{DAXFS\_IOC\_GET\_GPU\_INFO}
+\daxfs maps the DAX region into GPU address space via \texttt{dma-buf}.
+The kernel exposes a \texttt{dma-buf} file descriptor via the
+\texttt{DAXFS\_IOC\_GET\_DMABUF} ioctl.  User space imports this fd into
+CUDA via \texttt{cuImportExternalMemory} (opaque-fd type), then calls
+\texttt{cuExternalMemoryGetMappedBuffer} to obtain a
+\texttt{CUdeviceptr}.  This is a true zero-copy path: the GPU reads
+and writes the same physical pages that the CPU filesystem code uses.  The \texttt{DAXFS\_IOC\_GET\_GPU\_INFO}
 ioctl returns a \texttt{daxfs\_gpu\_info} structure containing all
 offsets needed to compute device pointers into the coordination lock,
 commit sequence counter, page cache slots, and page cache data area.
@@ -866,9 +853,8 @@ hardware is discussed in \S\ref{sec:multihost}.
 512\,MB contiguous DRAM region allocated at runtime via a CMA-based
 allocator and mapped with \texttt{memremap(MEMREMAP\_WB)}, exercising
 the same write-back-cached code path that CXL memory devices use.
-For GPU benchmarks, the DAX region is additionally mapped into GPU
-address space via pinned host memory
-(\texttt{cuMemHostRegister}/\texttt{cuMemHostGetDevicePointer}).
+For GPU benchmarks, the DAX region is additionally exported to the GPU
+via \texttt{dma-buf} (\S\ref{sec:gpu}).
 
 \textbf{Software.}  Linux 6.19.0-rc5+.  Benchmarks use
 \texttt{fio}~3.x with the synchronous I/O engine.  Each test writes a
