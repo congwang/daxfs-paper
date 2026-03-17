@@ -449,17 +449,6 @@ so user-space loads resolve to the physical memory in a single page
 table walk.  Data pages are page-aligned in the pool, ensuring that
 PFN mappings are always valid.
 
-\paragraph{Contiguous-page coalescing.}
-Because data pages are raw 4\,KB allocations with no header, pages
-allocated by the same bump operation are contiguous in memory.  The
-read path exploits this: after looking up the first overlay page, it
-checks whether subsequent pages (via the per-inode xarray cache) are
-physically adjacent.  If so, it extends the copy region and issues a
-single \texttt{copy\_to\_iter} spanning multiple pages.  For a 16\,MB
-sequential read of sequentially written data, this reduces the
-operation from 4,096 individual 4\,KB copies to a single contiguous
-transfer, matching tmpfs performance.
-
 \subsection{Hash Overlay: Lock-Free Writes via CAS}
 \label{sec:overlay}
 
@@ -801,10 +790,17 @@ a context structure for CUDA kernels to issue CE transfers via
   overlay; the base image is never modified.
 \item \textbf{File operations}: \texttt{read\_iter} performs zero-copy
   reads by returning pointers into DAX memory.  For overlay data, the
-  read path detects contiguous pages and coalesces them into a single
-  \texttt{copy\_to\_iter} call (\S\ref{sec:zero-copy}).  For
-  pcache-backed data, the read path pins the cache slot (incrementing
-  refcount) before returning data, preventing eviction during the read.
+  read path detects physically contiguous pages and coalesces them
+  into a single \texttt{copy\_to\_iter} call: because data pages are
+  raw 4\,KB allocations with no header, pages allocated by the same
+  bump operation are adjacent in memory.  After looking up the first
+  page (via the per-inode xarray cache), the read path checks whether
+  subsequent pages are physically adjacent and, if so, extends the
+  copy region.  For a 16\,MB sequential read of sequentially written
+  data, this reduces the operation from 4,096 individual copies to a
+  single contiguous transfer.  For pcache-backed data, the read path
+  pins the cache slot (incrementing refcount) before returning data,
+  preventing eviction during the read.
 \item \textbf{Address space operations}: \texttt{readpage}/\texttt{readahead}
   for integration with the kernel page cache on non-DAX access paths.
 \end{itemize}
