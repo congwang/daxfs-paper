@@ -253,13 +253,9 @@ future work.
 \paragraph{Multi-Tenant Isolation.}
 When multiple tenants share CXL memory (\eg multiple inference jobs or
 container workloads on the same cluster), each tenant must be prevented
-from reading or corrupting another's data.  On the CPU side, the
-filesystem must enforce per-tenant namespaces and POSIX permissions so
-that ordinary \texttt{mmap} and \texttt{read}/\texttt{write} paths
-respect ownership boundaries.  For GPU accelerators that access CXL
-memory via P2PDMA, traditional CPU-side page table isolation does not
-apply; the GPU driver would need to mediate access through per-tenant
-buffer handles with bounds-checked transfers.
+from reading or corrupting another's data.  A CXL-aware filesystem
+must enforce standard POSIX ownership and permission checks on all
+paths, including direct \texttt{mmap} access to DAX memory.
 
 These observations lead to four design requirements:
 \begin{enumerate}
@@ -272,10 +268,9 @@ These observations lead to four design requirements:
 \item \textbf{Zero-copy access.}  Applications should \texttt{mmap}
   file data directly from CXL memory without copying through a
   per-host page cache.
-\item \textbf{Multi-tenant isolation.}  When multiple tenants share
-  CXL memory, the filesystem must enforce per-tenant namespaces and
-  permissions.  If GPU accelerators access the region, isolation
-  should extend to the device level as well.
+\item \textbf{Multi-tenant isolation.}  The filesystem must enforce
+  POSIX ownership and permission checks on all access paths, including
+  direct \texttt{mmap} of DAX memory.
 \end{enumerate}
 
 %-------------------------------------------------------------------------------
@@ -687,17 +682,18 @@ client.  The isolation model has three layers:
   the handle ownership and performs bounds checking (CXL offset +
   transfer size $\leq$ buffer size) on every DMA request.
 
-\item \textbf{Filesystem overlay isolation.}  \daxfs's layered
-  overlay model provides namespace isolation: each tenant can mount
-  a private overlay on top of a shared base image, with mutations
-  visible only within that overlay.
+\item \textbf{Filesystem permissions.}  \daxfs enforces standard
+  POSIX file ownership and permission checks on all operations,
+  preventing tenants from accessing each other's files.  Note that
+  the overlay itself is shared across all hosts; isolation is
+  enforced at the permission level, not by separate overlay instances.
 \end{enumerate}
 
-This three-layer model ensures that even if a GPU thread issues
-\texttt{atomicCAS} to a CXL address, it can only reach memory within
-its registered buffer region.  The GPU driver's pinned buffer tracker
-enforces system-wide resource limits (maximum pinned memory, buffer
-count) to prevent any single tenant from exhausting CXL memory.
+These two layers (three when GPU P2PDMA is in use) ensure that
+tenants are isolated at both the filesystem and device levels.
+The GPU driver's pinned buffer tracker enforces system-wide resource
+limits (maximum pinned memory, buffer count) to prevent any single
+tenant from exhausting CXL memory.
 
 \subsubsection{GPU Page Cache Interaction}
 
