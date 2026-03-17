@@ -54,17 +54,24 @@ byte-addressable memory with hardware cache coherence, but no existing
 filesystem exploits this for lock-free multi-host coordination.
 
 We present \daxfs, a Linux filesystem designed for CXL shared memory
-with GPU P2PDMA access and multi-tenant isolation.  \daxfs maps
+with GPU zero-copy access and multi-tenant isolation.  \daxfs maps
 directly onto byte-addressable DAX memory and uses \texttt{cmpxchg}
 atomic operations---which CXL makes coherent across host
 boundaries---as its sole coordination primitive.  A CAS-based hash
 overlay enables lock-free concurrent writes from multiple hosts without
-any centralized coordinator.  For GPU access, \daxfs integrates with
-modified NVIDIA GPU kernel modules~\cite{cxlmemuring:gpu} that register
-CXL memory regions via P2PDMA ioctls: \texttt{mmap} of the DAX region
-flows through the CPU for permission validation, while GPU threads
-access file data through explicit Copy Engine read/write calls that
-enforce per-tenant buffer isolation at the GPU driver level.
+any centralized coordinator.  A cooperative shared page cache with a
+novel multi-host clock eviction algorithm (MH-clock) provides
+demand-paged caching across all hosts, with fully decentralized victim
+selection via \texttt{cmpxchg}.  For GPU workloads, \daxfs exports the
+DAX region via P2PDMA so that GPUs on the same PCIe fabric can read
+file data without CPU-mediated copies, with per-tenant buffer isolation
+enforced at the driver level.
+
+On DRAM-backed DAX memory, \daxfs matches or exceeds tmpfs throughput
+on most workloads, achieving up to $1.73\times$ higher random write
+throughput with 4 threads and $1.15\times$ higher random read throughput
+at 64\,KB, while simultaneously providing multi-host lock-free writes
+and shared caching that tmpfs cannot support.
 
 \end{abstract}
 
