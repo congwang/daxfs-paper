@@ -402,12 +402,18 @@ single sequential pass at mount time.
 
 \subsubsection{Overlay Pool Entries}
 
-Pool entries are typed and variable-size:
+Pool entries are variable-size.  Metadata entries carry a type header
+for identification; data pages do not:
 
 \begin{itemize}
 \item \textbf{Inode entry (32\,B):}  Mode, uid, gid, size, timestamps.
-\item \textbf{Data entry (4\,KB + 8\,B):}  A type header followed by a
-  4\,KB page of file data (COW granularity).
+  Identified by a type header at offset~0.
+\item \textbf{Data page (4\,KB):}  A raw page of file data with no
+  header.  The entry type is inferred from the hash key encoding
+  (\S\ref{sec:overlay}).  Removing the header makes consecutively
+  allocated data pages contiguous in memory, enabling the read path
+  to coalesce sequential pages into a single large copy
+  (\S\ref{sec:zero-copy}).
 \item \textbf{Dirent entry ($\sim$280\,B):}  Parent inode, name, target
   inode, mode, and a tombstone flag for deletions.
 \item \textbf{Dirlist entry (16\,B):}  Per-directory list head linking
@@ -416,7 +422,10 @@ Pool entries are typed and variable-size:
 
 Each entry type has a per-type free list for recycling.  The free list
 head is stored in the overlay header and updated via \texttt{cmpxchg},
-making recycling lock-free across hosts.
+making recycling lock-free across hosts.  Free-list recycling reuses
+the first 8~bytes of the freed entry as the next-free pointer; for
+data pages, these bytes are simply overwritten with user data on
+reallocation.
 
 \subsection{Zero-Copy Read Path}
 \label{sec:zero-copy}
@@ -427,7 +436,7 @@ without any intermediate copying.  The resolution path is:
 \begin{enumerate}
 \item Look up the data page in the hash overlay for key
   \texttt{(ino $\ll$ 20) | pgoff}.  If found, return a pointer to
-  the overlay pool entry's data.
+  the data page in the pool.
 \item If absent, look up the base image's data area using the inode's
   stored data offset.
 \item If the base image uses split mode with a backing file, look up
@@ -437,7 +446,19 @@ without any intermediate copying.  The resolution path is:
 At no point is data copied.  For \texttt{mmap}, the filesystem
 installs PFN (page frame number) mappings directly to the DAX memory,
 so user-space loads resolve to the physical memory in a single page
-table walk.
+table walk.  Data pages are page-aligned in the pool, ensuring that
+PFN mappings are always valid.
+
+\paragraph{Contiguous-page coalescing.}
+Because data pages are raw 4\,KB allocations with no header, pages
+allocated by the same bump operation are contiguous in memory.  The
+read path exploits this: after looking up the first overlay page, it
+checks whether subsequent pages (via the per-inode xarray cache) are
+physically adjacent.  If so, it extends the copy region and issues a
+single \texttt{copy\_to\_iter} spanning multiple pages.  For a 16\,MB
+sequential read of sequentially written data, this reduces the
+operation from 4,096 individual 4\,KB copies to a single contiguous
+transfer, matching tmpfs performance.
 
 \subsection{Hash Overlay: Lock-Free Writes via CAS}
 \label{sec:overlay}
@@ -499,15 +520,25 @@ collisions are resolved by linear probing within the table.
 \subsubsection{Pool Allocator}
 
 Pool entries are variable-size: inodes (32\,B), data pages
-(4\,KB + 8\,B header), and dirents ($\sim$280\,B).  Allocation uses an
-atomic bump pointer:
+(4\,KB), and dirents ($\sim$280\,B).  Allocation uses an
+atomic bump pointer with type-dependent alignment:
 
 \begin{lstlisting}
-off = atomic_fetch_add(&hdr->pool_alloc,
-                       size);
+aligned = ALIGN(pool_alloc, align);
+off = atomic_cmpxchg(&hdr->pool_alloc,
+                     pool_alloc,
+                     aligned + size);
 \end{lstlisting}
 
-This is a single atomic operation with minimal contention across hosts.
+Metadata entries use 8-byte alignment; data pages use \texttt{PAGE\_SIZE}
+alignment.  Page-aligning data allocations serves two purposes:
+(1)~it enables DAX \texttt{mmap} to install PFN mappings directly to
+overlay pages, and (2)~it ensures that consecutive data page allocations
+produce contiguous memory, enabling read-path coalescing
+(\S\ref{sec:zero-copy}).  The alignment gap between a metadata entry
+and the next data page is at most 4\,KB of wasted pool space, a
+negligible fraction of typical pool sizes (64\,MB+).
+
 Freed entries are recycled through per-type lock-free free lists (CAS
 on list head), avoiding pool exhaustion for long-running workloads.
 
@@ -769,9 +800,11 @@ a context structure for CUDA kernels to issue CE transfers via
   rename, unlink, setattr.  All write operations go through the hash
   overlay; the base image is never modified.
 \item \textbf{File operations}: \texttt{read\_iter} performs zero-copy
-  reads by returning pointers into DAX memory.  For pcache-backed
-  data, the read path pins the cache slot (incrementing refcount)
-  before returning data, preventing eviction during the read.
+  reads by returning pointers into DAX memory.  For overlay data, the
+  read path detects contiguous pages and coalesces them into a single
+  \texttt{copy\_to\_iter} call (\S\ref{sec:zero-copy}).  For
+  pcache-backed data, the read path pins the cache slot (incrementing
+  refcount) before returning data, preventing eviction during the read.
 \item \textbf{Address space operations}: \texttt{readpage}/\texttt{readahead}
   for integration with the kernel page cache on non-DAX access paths.
 \end{itemize}
