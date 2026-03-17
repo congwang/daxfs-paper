@@ -251,17 +251,17 @@ microbenchmarks in \S\ref{sec:gpu-eval}; end-to-end integration remains
 future work.
 
 \paragraph{Multi-Tenant Isolation.}
-When multiple tenants share CXL memory (\eg multiple LLM inference
-jobs on the same GPU cluster), each tenant must be prevented from
-reading or corrupting another's data.  Traditional CPU-side page table
-isolation does not extend to GPU-initiated DMA: a GPU that can issue
-arbitrary \texttt{atomicCAS} to any CXL address could bypass
-per-tenant boundaries.  The GPU driver must mediate all CXL access
-through explicitly registered, per-tenant buffer handles, enforcing
-that each GPU Copy Engine transfer is bounds-checked against the
-tenant's registered region.
+When multiple tenants share CXL memory (\eg multiple inference jobs or
+container workloads on the same cluster), each tenant must be prevented
+from reading or corrupting another's data.  On the CPU side, the
+filesystem must enforce per-tenant namespaces and POSIX permissions so
+that ordinary \texttt{mmap} and \texttt{read}/\texttt{write} paths
+respect ownership boundaries.  For GPU accelerators that access CXL
+memory via P2PDMA, traditional CPU-side page table isolation does not
+apply; the GPU driver would need to mediate access through per-tenant
+buffer handles with bounds-checked transfers.
 
-These observations lead to six design requirements:
+These observations lead to four design requirements:
 \begin{enumerate}
 \item \textbf{Lock-free multi-host writes.}  Multiple hosts must
   create files, write data, and modify metadata concurrently without
@@ -272,15 +272,10 @@ These observations lead to six design requirements:
 \item \textbf{Zero-copy access.}  Applications should \texttt{mmap}
   file data directly from CXL memory without copying through a
   per-host page cache.
-\item \textbf{GPU-direct data access.}  GPU threads must be able to
-  read file data and participate in cache coordination without CPU
-  involvement or kernel transitions.
 \item \textbf{Multi-tenant isolation.}  When multiple tenants share
-  CXL memory, each tenant's data must be isolated at the GPU driver
-  level, not just the CPU page table level.
-\item \textbf{Bounded validation.}  Images from untrusted sources
-  must be validatable in $O(n)$ time with no risk of infinite loops
-  from malformed pointers.
+  CXL memory, the filesystem must enforce per-tenant namespaces and
+  permissions.  If GPU accelerators access the region, isolation
+  should extend to the device level as well.
 \end{enumerate}
 
 %-------------------------------------------------------------------------------
