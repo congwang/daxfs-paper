@@ -52,16 +52,14 @@ Anonymous Authors
 CXL (Compute Express Link) enables multiple hosts to share
 byte-addressable memory with hardware cache coherence, but no existing
 filesystem exploits this for lock-free multi-host coordination.
-
 We present \daxfs, a Linux filesystem for CXL shared memory that uses
-\texttt{cmpxchg} atomic operations---which CXL makes coherent across
-host boundaries---as its sole coordination primitive.  A CAS-based
+\texttt{cmpxchg} atomic operations, which CXL makes coherent across
+host boundaries, as its sole coordination primitive.  A CAS-based
 hash overlay enables lock-free concurrent writes from multiple hosts
 without any centralized coordinator.  A cooperative shared page cache
 with a novel multi-host clock eviction algorithm (MH-clock) provides
 demand-paged caching in shared DAX memory, with fully decentralized
 victim selection via \texttt{cmpxchg}.
-
 We validate multi-host correctness using QEMU-emulated CXL~3.0, where
 two virtual hosts share a memory region with TCP-forwarded atomics.
 Under cross-host contention, \daxfs maintains $>$99\% CAS accuracy
@@ -378,7 +376,7 @@ single sequential pass at mount time.
 Pool entries are variable-size.  \emph{Inode entries} (32\,B) store
 mode, uid, gid, size, and timestamps, identified by a type header at
 offset~0.  \emph{Data pages} (4\,KB) are raw file data with no
-header---the entry type is inferred from the hash key encoding
+header; the entry type is inferred from the hash key encoding
 (\S\ref{sec:overlay}).  Removing the header makes consecutively
 allocated data pages contiguous in memory, enabling the read path to
 coalesce sequential pages into a single large copy
