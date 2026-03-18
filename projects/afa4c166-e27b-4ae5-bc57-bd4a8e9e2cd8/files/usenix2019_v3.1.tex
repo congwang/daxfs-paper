@@ -1046,8 +1046,8 @@ operate at the block layer; \daxfs instead exports DAX memory via
 EROFS~\cite{gao20:erofs} and Slacker~\cite{harter16:slacker} focus on
 read-only image distribution; neither supports multi-host writes.
 \daxfs's overlay draws on lock-free hash table
-designs~\cite{michael02:lockfree,herlihy08:art} with epoch-based
-reclamation~\cite{michael04:hazard}.
+designs~\cite{michael02:lockfree,herlihy08:art} with lock-free
+free-list recycling via \texttt{cmpxchg}.
 
 %-------------------------------------------------------------------------------
 \section{Discussion and Limitations}
@@ -1121,9 +1121,7 @@ for disaggregated memory pools shared across hosts.
 
 \daxfs is available as open-source software~\cite{daxfs:repo}.  The
 implementation includes the Linux kernel module, \texttt{mkdaxfs}
-image creation tool, \texttt{daxfs-inspect} debugging tool, the
-GPU mapping library (\texttt{daxfs-gpu-map}), and the CUDA
-device-side header (\texttt{daxfs\_gpu.h}).
+image creation tool, and \texttt{daxfs-inspect} debugging tool.
 
 %-------------------------------------------------------------------------------
 \begin{thebibliography}{26}
@@ -1269,12 +1267,6 @@ M.~M. Michael.
 \newblock In {\em ACM Symposium on Parallelism in Algorithms and Architectures
   (SPAA)}, 2002.
 
-\bibitem{michael04:hazard}
-M.~M. Michael.
-\newblock Hazard pointers: Safe memory reclamation for lock-free objects.
-\newblock {\em IEEE Transactions on Parallel and Distributed Systems},
-  15(6), 2004.
-
 \bibitem{schwan03:lustre}
 P.~Schwan.
 \newblock Lustre: Building a file system for 1000-node clusters.
@@ -1295,10 +1287,10 @@ J.~Xu and S.~Swanson.
 
 \bibitem{yang20:orion}
 J.~Yang, J.~Kim, M.~Hoseinzadeh, J.~Izraelevitz, and S.~Swanson.
-\newblock An empirical guide to the behavior and use of scalable persistent
-  memory.
+\newblock Orion: A distributed file system for non-volatile main memory and
+  {RDMA}-capable networks.
 \newblock In {\em USENIX Conference on File and Storage Technologies (FAST)},
-  2020.
+  pages 221--234, 2019.
 
 \end{thebibliography}
 
