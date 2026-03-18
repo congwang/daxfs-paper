@@ -50,26 +50,20 @@ Anonymous Authors
 \begin{abstract}
 %-------------------------------------------------------------------------------
 CXL (Compute Express Link) enables multiple hosts to share
-byte-addressable memory with hardware cache coherence, but no existing
-filesystem exploits this for lock-free multi-host coordination.
-We present \daxfs, a Linux filesystem for CXL shared memory that uses
-\texttt{cmpxchg} atomic operations, which CXL makes coherent across
-host boundaries, as its sole coordination primitive.  A CAS-based
-hash overlay enables lock-free concurrent writes from multiple hosts
-without any centralized coordinator.  A cooperative shared page cache
-with a novel multi-host clock eviction algorithm (MH-clock) provides
-demand-paged caching in shared DAX memory, with fully decentralized
-victim selection via \texttt{cmpxchg}.
-We validate multi-host correctness using QEMU-emulated CXL~3.0, where
-two virtual hosts share a memory region with TCP-forwarded atomics.
-Under cross-host contention, \daxfs maintains $>$99\% CAS accuracy
-with no lost updates.  On single-host DRAM-backed DAX, \daxfs matches or exceeds tmpfs
-throughput on multi-threaded and rewrite workloads, achieving up to
-$1.73\times$ higher random write throughput with 4 threads and
-$1.15\times$ higher random read throughput at 64\,KB.  Preliminary
-GPU microbenchmarks show that the \texttt{cmpxchg}-based design
-extends to GPU threads performing page cache operations at PCIe~5.0
-bandwidth limits.
+byte-addressable memory with hardware-coherent atomics, yet no
+existing filesystem exploits this for lock-free multi-host
+coordination.  We introduce \daxfs, the first lock-free Linux
+filesystem designed for multi-host concurrent access to CXL shared
+memory, using hardware-supported \texttt{cmpxchg} as its sole
+coordination primitive and eliminating locks, journaling, and central
+coordinators.  A CAS-based hash overlay enables concurrent file writes
+from independent hosts, and a novel Multi-Host CLOCK (MH-clock)
+algorithm decentralizes shared page cache eviction across hosts.
+Under QEMU-emulated multi-host CXL contention, \daxfs maintains
+$>$99\% CAS accuracy with no lost updates.  On single-host
+DRAM-backed DAX, \daxfs achieves up to $1.73\times$ higher random
+write throughput than tmpfs with 4 threads and $1.15\times$ higher
+random read throughput at 64\,KB.
 
 \end{abstract}
 
@@ -78,40 +72,44 @@ bandwidth limits.
 \label{sec:intro}
 %-------------------------------------------------------------------------------
 
-CXL-attached memory~\cite{cxl22:spec} and byte-addressable persistent
-memory~\cite{intel17:pmem,izraelevitz19:pmem} have introduced a new
-tier in the memory hierarchy: storage-class media directly accessible
-via CPU load and store instructions.  The Linux DAX (Direct Access)
-subsystem~\cite{linuxdax} maps this memory into user address spaces
-without copying through the page cache, offering DRAM-class latency
-with storage-scale capacity.
-
-CXL~3.0 extends this model to \emph{multiple hosts}: its Global Fabric
-Attached Memory (GFAM) lets independent servers perform hardware-coherent
-atomic operations on the same memory, without a network stack or
-software coherence protocol (\S\ref{sec:motivation}).
-
-While applications could access CXL memory through raw \texttt{mmap},
-practical workloads require filesystem semantics: hierarchical naming,
-POSIX permissions, and kernel-managed lifecycle.  Container runtimes
-and ML serving frameworks consume data through file paths; replacing
-these interfaces with a custom
-shared-memory API is impractical.  Target scenarios include multi-host
-LLM inference (sharing model weights without per-host duplication),
-container rootfs sharing ($N$ containers backed by a single copy), and
-CXL memory pooling across hosts.
+CXL~3.0~\cite{cxl22:spec} enables multiple independent servers to
+share byte-addressable memory with hardware-coherent atomic
+operations, creating a new opportunity for building shared-memory
+system abstractions at near-local DRAM latency.  The Linux DAX
+(Direct Access) subsystem~\cite{linuxdax} can map such memory into
+user address spaces without page-cache copies, but practical
+workloads require filesystem semantics: hierarchical naming, POSIX
+permissions, and kernel-managed lifecycle.  Target scenarios include
+multi-host LLM inference (sharing model weights without per-host
+duplication), container rootfs sharing ($N$ containers backed by a
+single copy), and CXL memory pooling across hosts.
 
 No existing filesystem fills this role
-(Table~\ref{tab:feature-matrix}).  Per-host filesystems duplicate
-state across hosts; distributed filesystems add network overhead that
-CXL should eliminate; FamFS~\cite{groves24:Famfs} targets CXL but
-restricts writes to a single master (\S\ref{sec:motivation}).
+(Table~\ref{tab:feature-matrix}).  Per-host DAX
+filesystems~\cite{xu16:nova,dulloor14:pmfs} maintain redundant
+metadata and page caches on each host, negating CXL's sharing
+benefit.  Distributed filesystems (NFS, CephFS, Lustre) interpose
+network protocols that add $\mu$s-scale latency to what should be
+ns-scale load/store operations.  FamFS~\cite{groves24:Famfs} targets
+CXL shared memory but enforces a single-master model where clients
+cannot create, write, or delete files
+(\S\ref{sec:motivation}).  There is no lock-free, multi-host shared
+filesystem that exploits CXL hardware atomics.
 
-We present \daxfs, a Linux kernel filesystem for CXL shared memory
-that uses \texttt{cmpxchg} as its sole coordination primitive,
-requiring no locks, logs, or journals
-(\S\ref{sec:design}--\S\ref{sec:impl}).  This paper makes three
-contributions:
+To bridge this gap, we introduce \daxfs, the first lock-free Linux
+filesystem designed for multi-host concurrent access to CXL shared
+memory.  \daxfs uses hardware-supported \texttt{cmpxchg} as its sole
+coordination primitive, eliminating locks, journaling, and central
+coordinators entirely.  A CAS-based hash overlay enables concurrent
+file writes from independent hosts, and a novel Multi-Host CLOCK
+(MH-clock) algorithm decentralizes shared page cache eviction, both
+operating through \texttt{cmpxchg} on DAX memory
+(\S\ref{sec:design}--\S\ref{sec:impl}).  Because the coordination is
+built entirely on \texttt{cmpxchg}, the design also extends to GPU
+accelerators that issue PCIe AtomicOps over the same fabric
+(\S\ref{sec:gpu}).
+
+This paper makes three contributions:
 
 \begin{enumerate}
 \item \textbf{The design and implementation of \daxfs}, the first
@@ -122,10 +120,10 @@ contributions:
   that adapts CLOCK for lock-free operation across CXL-connected
   hosts, with no centralized eviction daemon (\S\ref{sec:pcache}).
 
-\item \textbf{An evaluation} showing that \daxfs matches or exceeds
-  tmpfs on most single-host workloads (up to $1.73\times$ at
-  4~threads) and maintains $>$99\% CAS accuracy under QEMU-emulated
-  cross-host contention (\S\ref{sec:evaluation}).
+\item \textbf{An evaluation} on DRAM-backed DAX and QEMU-emulated
+  CXL~3.0, showing up to $1.73\times$ higher random write throughput
+  than tmpfs at 4~threads and $>$99\% CAS accuracy under cross-host
+  contention (\S\ref{sec:evaluation}).
 \end{enumerate}
 
 \begin{table*}[t]
