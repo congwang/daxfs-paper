@@ -93,8 +93,9 @@ software coherence protocol (\S\ref{sec:motivation}).
 
 While applications could access CXL memory through raw \texttt{mmap},
 practical workloads require filesystem semantics: hierarchical naming,
-POSIX permissions, and kernel-managed lifecycle.  Container runtimes and ML serving frameworks consume data
-through file paths; replacing these interfaces with a custom
+POSIX permissions, and kernel-managed lifecycle.  Container runtimes
+and ML serving frameworks consume data through file paths; replacing
+these interfaces with a custom
 shared-memory API is impractical.  Target scenarios include multi-host
 LLM inference (sharing model weights without per-host duplication),
 container rootfs sharing ($N$ containers backed by a single copy), and
@@ -177,7 +178,7 @@ This hardware capability creates a new design point for shared data
 access, analogous to the multikernel problem~\cite{baumann09:multikernel}
 where independent OS instances coordinate through shared memory rather
 than message passing.  However, existing system software is not prepared
-for this model.  We identify three fundamental problems that
+for this model.  We identify the following fundamental problems that
 collectively require a new filesystem design.
 
 \paragraph{Per-Host Duplication.}
@@ -187,7 +188,7 @@ map the same physical memory, each host instantiates independent VFS
 state.  When 8 hosts serve the same LLM model, this means 8 copies of
 the page cache metadata and 8 independent directory caches, wasting
 CXL memory capacity.  A single 70B-parameter model at FP16
-occupies 140\,GB; a pool serving $N$ tenants cannot afford $N$ copies.
+occupies 140\,GB; a pool serving $N$ hosts cannot afford $N$ copies.
 
 \paragraph{No Multi-Host Coordination.}
 Existing DAX filesystems assume a single-host, single-writer model.
@@ -746,7 +747,7 @@ key findings below.
 tmpfs across block sizes.  The gap reflects per-page overlay allocation
 (CAS-based hash insert + bump-pool atomic) required on the first write
 to each page.  \daxfs uses batch pool allocation (a single
-\texttt{fetch\_add} reserves $N$ entries) to amortise the cost for
+\texttt{cmpxchg} reserves $N$ entries) to amortise the cost for
 multi-page writes.  On rewrites (all pages cached in the per-inode
 xarray), \daxfs matches or exceeds tmpfs: 1.15$\times$ at 4\,KB and
 1.00$\times$ at 1\,MB.  The rewrite advantage at small block sizes comes
@@ -862,8 +863,8 @@ lock-free writes; capabilities that tmpfs cannot provide.
 \includegraphics[width=\columnwidth]{metadata.png}
 \caption{Metadata operation latency on 1,000 files (lower is better).
   \daxfs matches tmpfs on \texttt{readdir} (40.0 vs.\ 39.8\,ms) and
-  achieves the lowest \texttt{stat} latency (3,550\,ms), 5.3\% faster
-  than NOVA and 12\% faster than ext4-dax, due to flat overlay lookup.}
+  achieves the lowest \texttt{stat} latency (3,550\,ms), 5.6\% faster
+  than NOVA and 13.5\% faster than ext4-dax, due to flat overlay lookup.}
 \label{fig:metadata}
 \end{figure}
 
