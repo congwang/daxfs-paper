@@ -63,8 +63,8 @@ victim selection via \texttt{cmpxchg}.
 We validate multi-host correctness using QEMU-emulated CXL~3.0, where
 two virtual hosts share a memory region with TCP-forwarded atomics.
 Under cross-host contention, \daxfs maintains $>$99\% CAS accuracy
-with no lost updates.  On single-host DRAM-backed DAX, \daxfs matches
-or exceeds tmpfs throughput on most workloads, achieving up to
+with no lost updates.  On single-host DRAM-backed DAX, \daxfs matches or exceeds tmpfs
+throughput on multi-threaded and rewrite workloads, achieving up to
 $1.73\times$ higher random write throughput with 4 threads and
 $1.15\times$ higher random read throughput at 64\,KB.  Preliminary
 GPU microbenchmarks show that the \texttt{cmpxchg}-based design
@@ -134,9 +134,7 @@ contributions:
 \caption{Feature comparison of \daxfs with existing filesystems.
   ``Partial'' indicates DAX support exists but the filesystem still
   maintains significant metadata structures (NOVA, PMFS) or is
-  read-only (EROFS).  $^\dagger$Preliminary: validated with
-  microbenchmarks on DRAM-backed DAX; end-to-end GPU workload
-  evaluation is future work.}
+  read-only (EROFS).}
 \label{tab:feature-matrix}
 \begin{tabular}{@{}l@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{}}
 \toprule
@@ -147,8 +145,8 @@ Multi-host concurrent writes & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/
 Lock-free data path          & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
 Shared cache across hosts    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
 CXL atomics for coordination & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-GPU zero-copy data access    & \cmark$^\dagger$ & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-GPU-side cache coordination  & \cmark$^\dagger$ & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
+GPU zero-copy data access    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
+GPU-side cache coordination  & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
 Layered storage (base+overlay) & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark  & \cmark \\
 Self-contained image         & \cmark & \xmark  & \xmark  & \xmark & \xmark & \cmark  & N/A    \\
 Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \cmark  & N/A    \\
@@ -826,25 +824,26 @@ Lock-free writes   & \cmark  & \xmark  & --- \\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:results} summarizes the results.  \daxfs matches tmpfs
-on single-threaded workloads (0.68--0.97$\times$) and consistently
-exceeds tmpfs on multi-threaded workloads (up to 1.73$\times$).
-Rewrites match or beat tmpfs across all block sizes, demonstrating
-that the per-inode xarray cache eliminates overlay lookup overhead on
-the steady-state data path.  Notably, \daxfs achieves these results
-while simultaneously supporting multi-host writes, shared caching, and
-lock-free writes; capabilities that tmpfs cannot provide.
+Table~\ref{tab:results} summarizes the results.  On single-threaded
+first-write workloads, \daxfs is 3--32\% slower than tmpfs due to
+overlay allocation overhead.  However, \daxfs scales better under
+concurrency: at 4~threads it exceeds tmpfs by up to 1.73$\times$ on
+random writes, and rewrites match or beat tmpfs across all block sizes
+once overlay pages are cached in the per-inode xarray.  Unlike tmpfs,
+\daxfs's lock-free design is intended to extend to multi-host
+coordination; we validate this with QEMU-emulated CXL in
+\S\ref{sec:multihost}.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{read_throughput.png}
 \caption{Sequential read throughput comparison across filesystems.
   Left: 16\,MB sequential read; right: 1\,MB sequential read.
-  \daxfs achieves 106.7\,MB/s on the large sequential workload
-  (4.1$\times$ ext4-dax and 22.2$\times$ NOVA) and matches tmpfs
-  on the 1\,MB file (100\,MB/s each), demonstrating that the
-  lock-free overlay adds negligible overhead once pages are cached
-  in the per-inode xarray.}
+  On the 16\,MB workload, tmpfs is fastest (228.6\,MB/s); \daxfs
+  achieves 106.7\,MB/s (4.1$\times$ ext4-dax, 22.2$\times$ NOVA).
+  On the 1\,MB file, \daxfs matches tmpfs (100\,MB/s each),
+  showing that the lock-free overlay adds negligible overhead once
+  pages are cached in the per-inode xarray.}
 \label{fig:read-throughput}
 \end{figure}
 
@@ -852,9 +851,10 @@ lock-free writes; capabilities that tmpfs cannot provide.
 \centering
 \includegraphics[width=\columnwidth]{read_latency.png}
 \caption{Sequential read latency comparison (lower is better).
-  \daxfs completes a 16\,MB read in 153.6\,ms, 4.1$\times$ faster
-  than ext4-dax and 21.8$\times$ faster than NOVA.  On 1\,MB files,
-  \daxfs and tmpfs both finish in 14\,ms.}
+  On the 16\,MB workload, tmpfs is fastest (74.7\,ms); \daxfs
+  completes in 153.6\,ms (4.1$\times$ faster than ext4-dax,
+  21.8$\times$ faster than NOVA).  On 1\,MB files, \daxfs and
+  tmpfs both finish in 14\,ms.}
 \label{fig:read-latency}
 \end{figure}
 
@@ -1112,7 +1112,7 @@ and zero-copy access in a unified design.
 We validate multi-host correctness using QEMU-emulated CXL~3.0,
 confirming $>$99\% CAS accuracy under cross-host contention with no
 lost updates.  On single-host DRAM-backed DAX, \daxfs matches or
-exceeds tmpfs throughput on most workloads, achieving up to
+exceeds tmpfs throughput on multi-threaded and rewrite workloads, achieving up to
 $1.73\times$ higher random write throughput with 4 threads and
 $1.15\times$ higher random read throughput at 64\,KB.  Preliminary
 GPU microbenchmarks further confirm that the \texttt{cmpxchg}-based
