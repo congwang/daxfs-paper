@@ -677,14 +677,6 @@ of pointer-based structures eliminates cycle injection, dangling
 pointer exploitation, and unbounded traversal, which is important for
 mounting untrusted images in container environments.
 
-\subsection{Kernel Compatibility and Tools}
-
-\daxfs supports Linux 5.4 through 7.x via a compatibility layer that
-provides shims for API changes across kernel versions.  The userspace
-toolchain includes \textbf{mkdaxfs} for creating filesystem images
-from directory trees (supporting static, split, and empty modes) and
-\textbf{daxfs-inspect} for read-only inspection of mounted instances.
-
 \subsection{GPU P2PDMA Integration}
 \label{sec:gpu}
 
