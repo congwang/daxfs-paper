@@ -656,86 +656,24 @@ Lookup operations use \texttt{smp\_rmb} after reading
 On x86, these compile to compiler barriers (x86 provides TSO
 ordering); on ARM64, they emit fence instructions.
 
-\subsection{GPU P2PDMA Access with Tenant Isolation}
+\subsection{GPU P2PDMA Access}
 \label{sec:gpu}
 
-\subsubsection{P2PDMA Architecture}
+Because \daxfs operates on DAX memory, it can export the filesystem
+region to GPU accelerators on the same PCIe fabric via
+\texttt{dma-buf}.  The \texttt{DAXFS\_IOC\_GET\_DMABUF} ioctl returns
+a dma-buf file descriptor for the mount's DAX region, which a GPU
+driver can then map for peer-to-peer reads without CPU-mediated copies.
 
-\daxfs integrates with modified NVIDIA open GPU kernel
-modules~\cite{cxlmemuring:gpu} that add CXL P2PDMA support.
-The key design decision is to \emph{separate the mapping path from
-the data transfer path}: \texttt{mmap} of the CXL DAX region flows
-through the CPU for permission validation, while GPU data access uses
-explicit Copy Engine (CE) transfers that are bounds-checked at the
-driver level.
-
-The P2PDMA subsystem exposes four new ioctls:
-\begin{itemize}
-\item \texttt{REGISTER\_CXL\_BUFFER}: Pins CXL pages via
-  \texttt{pin\_user\_pages(FOLL\_LONGTERM)}, creates a GPU memory
-  descriptor from the physical addresses, and returns a per-tenant
-  buffer handle.
-\item \texttt{UNREGISTER\_CXL\_BUFFER}: Unpins pages and releases the
-  memory descriptor.
-\item \texttt{CXL\_P2P\_DMA\_REQUEST}: Submits a GPU CE transfer
-  between VRAM and the registered CXL buffer, with direction flag
-  and bounds checking.
-\item \texttt{GET\_CXL\_INFO}: Queries CXL link status and bandwidth.
-\end{itemize}
-
-\subsubsection{Multi-Tenant Isolation Model}
-
-When multiple tenants share a CXL memory pool, each tenant registers
-its own CXL buffer through a separate NVIDIA Resource Manager (RM)
-client.  The isolation model has three layers:
-
-\begin{enumerate}
-\item \textbf{CPU-side page permissions.}  The \texttt{mmap} of the
-  DAX region goes through the standard Linux VMA permission checks.
-  Each tenant's process can only \texttt{mmap} regions that the
-  filesystem's POSIX permissions allow.
-
-\item \textbf{GPU driver buffer isolation.}  Each
-  \texttt{REGISTER\_CXL\_BUFFER} call creates a handle scoped to the
-  calling RM client.  A tenant's GPU kernel can only issue CE
-  transfers against its own registered handles; the driver validates
-  the handle ownership and performs bounds checking (CXL offset +
-  transfer size $\leq$ buffer size) on every DMA request.
-
-\item \textbf{Filesystem permissions.}  \daxfs enforces standard
-  POSIX file ownership and permission checks on all operations,
-  preventing tenants from accessing each other's files.  Note that
-  the overlay itself is shared across all hosts; isolation is
-  enforced at the permission level, not by separate overlay instances.
-\end{enumerate}
-
-These two layers (three when GPU P2PDMA is in use) ensure that
-tenants are isolated at both the filesystem and device levels.
-The GPU driver's pinned buffer tracker enforces system-wide resource
-limits (maximum pinned memory, buffer count) to prevent any single
-tenant from exhausting CXL memory.
-
-\subsubsection{GPU Page Cache Interaction}
-
-GPU threads interact with the shared page cache through the CE
-transfer path rather than direct PCIe atomics:
-
-\begin{enumerate}
-\item \textbf{Fast-path read.}  The GPU issues a CE read via
-  \texttt{CXL\_P2P\_DMA\_REQUEST} with direction CXL$\to$GPU.  The
-  driver resolves the CXL offset to the registered buffer's physical
-  pages and submits the transfer.  For page cache slots in VALID
-  state, this is a single CE operation at PCIe bandwidth.
-
-\item \textbf{Cache miss.}  If the target page is not in the shared
-  page cache, the GPU-side library falls back to a CPU-mediated path:
-  it signals the host to fill the page cache slot, then re-issues the
-  CE read after the slot transitions to VALID.
-
-\item \textbf{Commit detection.}  GPU threads read the global
-  \texttt{commit\_seq} counter via a volatile load to detect
-  invalidation events without CPU notification.
-\end{enumerate}
+We prototype a P2PDMA integration using modified NVIDIA open GPU
+kernel modules~\cite{cxlmemuring:gpu} that register the dma-buf
+region as pinned GPU-accessible memory via custom ioctls.  GPU threads
+can then issue Copy Engine transfers directly between VRAM and the DAX
+region.  Because \daxfs's coordination is built entirely on
+\texttt{cmpxchg}, GPU threads can also participate in page cache
+lookups by issuing PCIe AtomicOp TLPs, which the memory controller
+serializes alongside CPU atomics.  We evaluate the feasibility of this
+path with microbenchmarks in \S\ref{sec:gpu-eval}.
 
 %-------------------------------------------------------------------------------
 \section{Implementation}
