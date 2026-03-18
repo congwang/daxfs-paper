@@ -52,12 +52,12 @@ Anonymous Authors
 CXL (Compute Express Link) enables multiple hosts to share
 byte-addressable memory with hardware-coherent atomics, yet no
 existing filesystem exploits this for lock-free multi-host
-coordination.  We introduce \daxfs, the first lock-free Linux
+coordination.  We introduce \daxfs, a lock-free Linux
 filesystem designed for multi-host concurrent access to CXL shared
 memory, using hardware-supported \texttt{cmpxchg} as its sole
 coordination primitive and eliminating locks, journaling, and central
 coordinators.  A CAS-based hash overlay enables concurrent file writes
-from independent hosts, and a novel Multi-Host CLOCK (MH-clock)
+from independent hosts, and a Multi-Host CLOCK (MH-clock)
 algorithm decentralizes shared page cache eviction across hosts.
 Under QEMU-emulated multi-host CXL contention, \daxfs maintains
 $>$99\% CAS accuracy with no lost updates.  On single-host
@@ -96,12 +96,12 @@ cannot create, write, or delete files
 (\S\ref{sec:motivation}).  There is no lock-free, multi-host shared
 filesystem that exploits CXL hardware atomics.
 
-To bridge this gap, we introduce \daxfs, the first lock-free Linux
+To bridge this gap, we introduce \daxfs, a lock-free Linux
 filesystem designed for multi-host concurrent access to CXL shared
 memory.  \daxfs uses hardware-supported \texttt{cmpxchg} as its sole
 coordination primitive, eliminating locks, journaling, and central
 coordinators entirely.  A CAS-based hash overlay enables concurrent
-file writes from independent hosts, and a novel Multi-Host CLOCK
+file writes from independent hosts, and a Multi-Host CLOCK
 (MH-clock) algorithm decentralizes shared page cache eviction, both
 operating through \texttt{cmpxchg} on DAX memory
 (\S\ref{sec:design}--\S\ref{sec:impl}).  Because the coordination is
@@ -109,7 +109,7 @@ built entirely on \texttt{cmpxchg}, the design also extends to GPU
 accelerators that issue PCIe AtomicOps over the same fabric
 (\S\ref{sec:gpu}).
 
-This paper makes three contributions:
+To summarize, this paper makes three contributions:
 
 \begin{enumerate}
 \item \textbf{The design and implementation of \daxfs}, the first
