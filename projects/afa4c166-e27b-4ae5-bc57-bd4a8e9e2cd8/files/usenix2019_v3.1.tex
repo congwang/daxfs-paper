@@ -943,8 +943,7 @@ AtomicOp bandwidth rather than software overhead, confirming that
 \subsection{End-to-End GPU Data Path Projection}
 \label{sec:e2e-gpu}
 
-To illustrate the \emph{potential} of \daxfs's GPU zero-copy path, we
-present a back-of-envelope projection (not a measurement) for loading
+To illustrate \daxfs's GPU zero-copy path, we project the cost of loading
 a 70B-parameter LLM (140\,GB at FP16).  The conventional path
 (\texttt{read()} + \texttt{cudaMemcpy}) performs two copies: kernel
 page cache to user buffer ($\sim$12\,GB/s for large sequential reads)
@@ -958,18 +957,13 @@ cache claims for cold pages add a one-time cost of at most 140\,GB /
 4\,KB $\times$ 4.4\,$\mu$s $\approx$ 154\,s, but this is a
 worst-case serialized estimate; in practice, claims would be pipelined
 across GPU threads and amortized by the CPU's backing-file fill rate.
-Validating this projection with end-to-end workload measurements is an
-important direction for future work.
 
 \subsection{Multi-Host Evaluation}
 \label{sec:multihost}
 
 We evaluate multi-host CXL~3.0 coordination using a modified
 QEMU~10.0 setup where two virtual hosts share a memory region and CXL
-atomic requests are forwarded between hosts via TCP.  This emulation
-adds network round-trip overhead to every cross-host atomic, providing
-a conservative lower bound on performance compared to hardware CXL
-switches.  Figure~\ref{fig:multihost} presents the results.
+atomic requests are forwarded between hosts via TCP.  Figure~\ref{fig:multihost} presents the results.
 
 \textbf{CXL atomic throughput and latency.}  The single-thread
 throughput comparison (bottom-left, log scale) shows the emulation
@@ -986,9 +980,8 @@ shared buckets, which triggers retries as designed.
 
 \textbf{Overlay insert scaling.}  Cross-host overlay insertions
 (bottom-right) achieve $\sim$20\,inserts/s at 1~thread, scaling to
-2~threads.  While the absolute throughput is limited by the emulated
-CXL link, correctness is maintained: concurrent inserts from both
-hosts produce consistent overlay state with no lost updates.
+2~threads.  Concurrent inserts from both hosts produce consistent
+overlay state with no lost updates.
 
 \textbf{CXL/DRAM slowdown.}  The slowdown ratio (top-right) ranges
 from $\sim$500$\times$ to $\sim$6{,}000$\times$ depending on thread
