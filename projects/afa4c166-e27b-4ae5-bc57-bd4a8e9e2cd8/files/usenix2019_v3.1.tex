@@ -38,7 +38,7 @@
 \date{}
 
 \title{\Large \bf DAXFS: A Lock-Free Multi-Tenant Filesystem\\
-  for CXL Disaggregated Memory with GPU P2PDMA Access}
+  for CXL Disaggregated Memory}
 
 \author{
 Anonymous Authors
@@ -54,18 +54,20 @@ byte-addressable memory with hardware cache coherence, but no existing
 filesystem exploits this for lock-free multi-host coordination.
 
 We present \daxfs, a Linux filesystem designed for CXL shared memory
-with GPU zero-copy access and multi-tenant isolation.  \daxfs maps
+with multi-tenant isolation.  \daxfs maps
 directly onto byte-addressable DAX memory and uses \texttt{cmpxchg}
-atomic operations---which CXL makes coherent across host
-boundaries---as its sole coordination primitive.  A CAS-based hash
+atomic operations, which CXL makes coherent across host
+boundaries, as its sole coordination primitive.  A CAS-based hash
 overlay enables lock-free concurrent writes from multiple hosts without
 any centralized coordinator.  A cooperative shared page cache with a
 novel multi-host clock eviction algorithm (MH-clock) provides
 demand-paged caching across all hosts, with fully decentralized victim
-selection via \texttt{cmpxchg}.  For GPU workloads, \daxfs exports the
-DAX region via P2PDMA so that GPUs on the same PCIe fabric can read
-file data without CPU-mediated copies, with per-tenant buffer isolation
-enforced at the driver level.
+selection via \texttt{cmpxchg}.  Because \daxfs's coordination is built
+entirely on \texttt{cmpxchg}, the design extends naturally to GPU
+accelerators that issue PCIe AtomicOp TLPs; we demonstrate the
+feasibility of this path with microbenchmarks showing that GPU threads
+can perform page cache lookups and CAS operations at PCIe~5.0
+bandwidth limits.
 
 On DRAM-backed DAX memory, \daxfs matches or exceeds tmpfs throughput
 on most workloads, achieving up to $1.73\times$ higher random write
@@ -110,7 +112,7 @@ CXL should eliminate; FamFS~\cite{groves24:Famfs} targets CXL but
 restricts writes to a single master (\S\ref{sec:motivation}).
 
 We present \daxfs, a Linux kernel filesystem module for CXL shared
-memory with GPU P2PDMA access and multi-tenant isolation.  \daxfs
+memory with multi-tenant isolation.  \daxfs
 treats byte-addressable memory as the storage medium and uses
 \texttt{cmpxchg} as its sole coordination primitive, requiring no
 locks, logs, or journals.  Its key contributions are:
@@ -127,21 +129,18 @@ locks, logs, or journals.  Its key contributions are:
   fully decentralized victim selection via \texttt{cmpxchg}, with no
   centralized eviction daemon or invalidation protocol.
 
-\item \textbf{GPU P2PDMA access with tenant isolation.}  \daxfs
-  integrates with modified NVIDIA GPU kernel
-  modules~\cite{cxlmemuring:gpu} that register CXL memory via P2PDMA
-  ioctls.  The CPU-side \texttt{mmap} path validates permissions;
-  GPU threads access data through explicit Copy Engine read/write
-  calls that enforce per-tenant buffer isolation at the driver level.
-
 \item \textbf{Flat validated format.}  Fixed-size inodes and flat
   directory entry arrays with no pointer indirection, enabling
   complete mount-time validation in a single bounded pass.
 \end{enumerate}
 
-Additionally, because \daxfs operates directly on DAX memory, it
-exports the filesystem region to GPUs via \texttt{dma-buf}, enabling
-P2P zero-copy reads over the PCIe fabric (\S\ref{sec:gpu}).
+Additionally, because \daxfs's coordination relies solely on
+\texttt{cmpxchg}, it extends naturally to GPU accelerators on the same
+PCIe fabric.  We present a preliminary GPU P2PDMA integration
+(\S\ref{sec:gpu}) and microbenchmarks demonstrating that GPU threads
+can perform page cache lookups and CAS operations at PCIe~5.0
+bandwidth limits, though end-to-end GPU workload evaluation remains
+future work.
 
 \begin{table*}[t]
 \centering
@@ -149,7 +148,9 @@ P2P zero-copy reads over the PCIe fabric (\S\ref{sec:gpu}).
 \caption{Feature comparison of \daxfs with existing filesystems.
   ``Partial'' indicates DAX support exists but the filesystem still
   maintains significant metadata structures (NOVA, PMFS) or is
-  read-only (EROFS).}
+  read-only (EROFS).  $^\dagger$Preliminary: validated with
+  microbenchmarks on DRAM-backed DAX; end-to-end GPU workload
+  evaluation is future work.}
 \label{tab:feature-matrix}
 \begin{tabular}{@{}l@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{\hspace{6pt}}c@{}}
 \toprule
@@ -160,9 +161,8 @@ Multi-host concurrent writes & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/
 Lock-free data path          & \cmark & \xmark  & \xmark  & \xmark & \xmark & N/A     & \xmark \\
 Shared cache across hosts    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
 CXL atomics for coordination & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-GPU zero-copy data access    & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-GPU-side cache coordination  & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
-Multi-tenant GPU isolation   & \cmark & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
+GPU zero-copy data access    & \cmark$^\dagger$ & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
+GPU-side cache coordination  & \cmark$^\dagger$ & \xmark  & \xmark  & \xmark & \xmark & \xmark  & \xmark \\
 Layered storage (base+overlay) & \cmark & \xmark & \xmark & \xmark & \xmark & \xmark  & \cmark \\
 Self-contained image         & \cmark & \xmark  & \xmark  & \xmark & \xmark & \cmark  & N/A    \\
 Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \cmark  & N/A    \\
@@ -244,20 +244,19 @@ compare-and-swap, that are serialized at the memory controller
 alongside CPU \texttt{LOCK CMPXCHG} instructions.  A filesystem whose
 coordination is built entirely on \texttt{cmpxchg} can therefore extend
 to GPU threads that issue \texttt{atomicCAS} over the same PCIe fabric,
-enabling GPU-side filesystem coordination with no CPU involvement.
+potentially enabling GPU-side filesystem coordination with reduced CPU
+involvement.  We validate the feasibility of this path with
+microbenchmarks in \S\ref{sec:gpu-eval}; end-to-end integration remains
+future work.
 
 \paragraph{Multi-Tenant Isolation.}
-When multiple tenants share CXL memory---\eg multiple LLM inference
-jobs on the same GPU cluster---each tenant must be prevented from
-reading or corrupting another's data.  Traditional CPU-side page table
-isolation does not extend to GPU-initiated DMA: a GPU that can issue
-arbitrary \texttt{atomicCAS} to any CXL address could bypass
-per-tenant boundaries.  The GPU driver must mediate all CXL access
-through explicitly registered, per-tenant buffer handles, enforcing
-that each GPU Copy Engine transfer is bounds-checked against the
-tenant's registered region.
+When multiple tenants share CXL memory (\eg multiple inference jobs or
+container workloads on the same cluster), each tenant must be prevented
+from reading or corrupting another's data.  A CXL-aware filesystem
+must enforce standard POSIX ownership and permission checks on all
+paths, including direct \texttt{mmap} access to DAX memory.
 
-These observations lead to six design requirements:
+These observations lead to four design requirements:
 \begin{enumerate}
 \item \textbf{Lock-free multi-host writes.}  Multiple hosts must
   create files, write data, and modify metadata concurrently without
@@ -268,15 +267,9 @@ These observations lead to six design requirements:
 \item \textbf{Zero-copy access.}  Applications should \texttt{mmap}
   file data directly from CXL memory without copying through a
   per-host page cache.
-\item \textbf{GPU-direct data access.}  GPU threads must be able to
-  read file data and participate in cache coordination without CPU
-  involvement or kernel transitions.
-\item \textbf{Multi-tenant isolation.}  When multiple tenants share
-  CXL memory, each tenant's data must be isolated at the GPU driver
-  level, not just the CPU page table level.
-\item \textbf{Bounded validation.}  Images from untrusted sources
-  must be validatable in $O(n)$ time with no risk of infinite loops
-  from malformed pointers.
+\item \textbf{Multi-tenant isolation.}  The filesystem must enforce
+  POSIX ownership and permission checks on all access paths, including
+  direct \texttt{mmap} of DAX memory.
 \end{enumerate}
 
 %-------------------------------------------------------------------------------
@@ -408,12 +401,18 @@ single sequential pass at mount time.
 
 \subsubsection{Overlay Pool Entries}
 
-Pool entries are typed and variable-size:
+Pool entries are variable-size.  Metadata entries carry a type header
+for identification; data pages do not:
 
 \begin{itemize}
 \item \textbf{Inode entry (32\,B):}  Mode, uid, gid, size, timestamps.
-\item \textbf{Data entry (4\,KB + 8\,B):}  A type header followed by a
-  4\,KB page of file data (COW granularity).
+  Identified by a type header at offset~0.
+\item \textbf{Data page (4\,KB):}  A raw page of file data with no
+  header.  The entry type is inferred from the hash key encoding
+  (\S\ref{sec:overlay}).  Removing the header makes consecutively
+  allocated data pages contiguous in memory, enabling the read path
+  to coalesce sequential pages into a single large copy
+  (\S\ref{sec:zero-copy}).
 \item \textbf{Dirent entry ($\sim$280\,B):}  Parent inode, name, target
   inode, mode, and a tombstone flag for deletions.
 \item \textbf{Dirlist entry (16\,B):}  Per-directory list head linking
@@ -422,7 +421,10 @@ Pool entries are typed and variable-size:
 
 Each entry type has a per-type free list for recycling.  The free list
 head is stored in the overlay header and updated via \texttt{cmpxchg},
-making recycling lock-free across hosts.
+making recycling lock-free across hosts.  Free-list recycling reuses
+the first 8~bytes of the freed entry as the next-free pointer; for
+data pages, these bytes are simply overwritten with user data on
+reallocation.
 
 \subsection{Zero-Copy Read Path}
 \label{sec:zero-copy}
@@ -433,7 +435,7 @@ without any intermediate copying.  The resolution path is:
 \begin{enumerate}
 \item Look up the data page in the hash overlay for key
   \texttt{(ino $\ll$ 20) | pgoff}.  If found, return a pointer to
-  the overlay pool entry's data.
+  the data page in the pool.
 \item If absent, look up the base image's data area using the inode's
   stored data offset.
 \item If the base image uses split mode with a backing file, look up
@@ -443,7 +445,8 @@ without any intermediate copying.  The resolution path is:
 At no point is data copied.  For \texttt{mmap}, the filesystem
 installs PFN (page frame number) mappings directly to the DAX memory,
 so user-space loads resolve to the physical memory in a single page
-table walk.
+table walk.  Data pages are page-aligned in the pool, ensuring that
+PFN mappings are always valid.
 
 \subsection{Hash Overlay: Lock-Free Writes via CAS}
 \label{sec:overlay}
@@ -505,15 +508,25 @@ collisions are resolved by linear probing within the table.
 \subsubsection{Pool Allocator}
 
 Pool entries are variable-size: inodes (32\,B), data pages
-(4\,KB + 8\,B header), and dirents ($\sim$280\,B).  Allocation uses an
-atomic bump pointer:
+(4\,KB), and dirents ($\sim$280\,B).  Allocation uses an
+atomic bump pointer with type-dependent alignment:
 
 \begin{lstlisting}
-off = atomic_fetch_add(&hdr->pool_alloc,
-                       size);
+aligned = ALIGN(pool_alloc, align);
+off = atomic_cmpxchg(&hdr->pool_alloc,
+                     pool_alloc,
+                     aligned + size);
 \end{lstlisting}
 
-This is a single atomic operation with minimal contention across hosts.
+Metadata entries use 8-byte alignment; data pages use \texttt{PAGE\_SIZE}
+alignment.  Page-aligning data allocations serves two purposes:
+(1)~it enables DAX \texttt{mmap} to install PFN mappings directly to
+overlay pages, and (2)~it ensures that consecutive data page allocations
+produce contiguous memory, enabling read-path coalescing
+(\S\ref{sec:zero-copy}).  The alignment gap between a metadata entry
+and the next data page is at most 4\,KB of wasted pool space, a
+negligible fraction of typical pool sizes (64\,MB+).
+
 Freed entries are recycled through per-type lock-free free lists (CAS
 on list head), avoiding pool exhaustion for long-running workloads.
 
@@ -642,86 +655,6 @@ Lookup operations use \texttt{smp\_rmb} after reading
 On x86, these compile to compiler barriers (x86 provides TSO
 ordering); on ARM64, they emit fence instructions.
 
-\subsection{GPU P2PDMA Access with Tenant Isolation}
-\label{sec:gpu}
-
-\subsubsection{P2PDMA Architecture}
-
-\daxfs integrates with modified NVIDIA open GPU kernel
-modules~\cite{cxlmemuring:gpu} that add CXL P2PDMA support.
-The key design decision is to \emph{separate the mapping path from
-the data transfer path}: \texttt{mmap} of the CXL DAX region flows
-through the CPU for permission validation, while GPU data access uses
-explicit Copy Engine (CE) transfers that are bounds-checked at the
-driver level.
-
-The P2PDMA subsystem exposes four new ioctls:
-\begin{itemize}
-\item \texttt{REGISTER\_CXL\_BUFFER}: Pins CXL pages via
-  \texttt{pin\_user\_pages(FOLL\_LONGTERM)}, creates a GPU memory
-  descriptor from the physical addresses, and returns a per-tenant
-  buffer handle.
-\item \texttt{UNREGISTER\_CXL\_BUFFER}: Unpins pages and releases the
-  memory descriptor.
-\item \texttt{CXL\_P2P\_DMA\_REQUEST}: Submits a GPU CE transfer
-  between VRAM and the registered CXL buffer, with direction flag
-  and bounds checking.
-\item \texttt{GET\_CXL\_INFO}: Queries CXL link status and bandwidth.
-\end{itemize}
-
-\subsubsection{Multi-Tenant Isolation Model}
-
-When multiple tenants share a CXL memory pool, each tenant registers
-its own CXL buffer through a separate NVIDIA Resource Manager (RM)
-client.  The isolation model has three layers:
-
-\begin{enumerate}
-\item \textbf{CPU-side page permissions.}  The \texttt{mmap} of the
-  DAX region goes through the standard Linux VMA permission checks.
-  Each tenant's process can only \texttt{mmap} regions that the
-  filesystem's POSIX permissions allow.
-
-\item \textbf{GPU driver buffer isolation.}  Each
-  \texttt{REGISTER\_CXL\_BUFFER} call creates a handle scoped to the
-  calling RM client.  A tenant's GPU kernel can only issue CE
-  transfers against its own registered handles; the driver validates
-  the handle ownership and performs bounds checking (CXL offset +
-  transfer size $\leq$ buffer size) on every DMA request.
-
-\item \textbf{Filesystem overlay isolation.}  \daxfs's layered
-  overlay model provides namespace isolation: each tenant can mount
-  a private overlay on top of a shared base image, with mutations
-  visible only within that overlay.
-\end{enumerate}
-
-This three-layer model ensures that even if a GPU thread issues
-\texttt{atomicCAS} to a CXL address, it can only reach memory within
-its registered buffer region.  The GPU driver's pinned buffer tracker
-enforces system-wide resource limits (maximum pinned memory, buffer
-count) to prevent any single tenant from exhausting CXL memory.
-
-\subsubsection{GPU Page Cache Interaction}
-
-GPU threads interact with the shared page cache through the CE
-transfer path rather than direct PCIe atomics:
-
-\begin{enumerate}
-\item \textbf{Fast-path read.}  The GPU issues a CE read via
-  \texttt{CXL\_P2P\_DMA\_REQUEST} with direction CXL$\to$GPU.  The
-  driver resolves the CXL offset to the registered buffer's physical
-  pages and submits the transfer.  For page cache slots in VALID
-  state, this is a single CE operation at PCIe bandwidth.
-
-\item \textbf{Cache miss.}  If the target page is not in the shared
-  page cache, the GPU-side library falls back to a CPU-mediated path:
-  it signals the host to fill the page cache slot, then re-issues the
-  CE read after the slot transitions to VALID.
-
-\item \textbf{Commit detection.}  GPU threads read the global
-  \texttt{commit\_seq} counter via a volatile load to detect
-  invalidation events without CPU notification.
-\end{enumerate}
-
 %-------------------------------------------------------------------------------
 \section{Implementation}
 \label{sec:impl}
@@ -744,26 +677,11 @@ interface introduced in Linux~5.6.
 \item \textbf{DMA buffer.}  Using the \texttt{fsopen} API, a
   user-space process passes a dma-buf file descriptor via
   \texttt{FSCONFIG\_SET\_FD}.  \daxfs calls \texttt{dma\_buf\_vmap()}
-  to obtain a kernel virtual mapping.  This path also enables
-  GPU zero-copy access (\S\ref{sec:gpu}).
+  to obtain a kernel virtual mapping.
 \end{itemize}
 
 Both modes bypass the kernel's \texttt{dax\_device} abstraction entirely,
 mapping memory directly into the filesystem's address space.
-
-\subsection{GPU P2PDMA Integration}
-
-The GPU integration uses modified NVIDIA open GPU kernel
-modules~\cite{cxlmemuring:gpu} (based on v575.57.08) that add five
-new kernel functions (\texttt{RmP2PRegisterCxlBuffer},
-\texttt{RmP2PUnregisterCxlBuffer}, \texttt{RmP2PGetCxlPages},
-\texttt{RmP2PPutCxlPages}, \texttt{RmP2PCxlDmaRequest}) and four
-ioctls for CXL buffer lifecycle management.  A user-space library
-(\texttt{daxfs-gpu-map}) wraps the ioctl interface: it registers the
-DAX region as a CXL buffer, obtains the buffer handle, and provides
-a context structure for CUDA kernels to issue CE transfers via
-\texttt{daxfs\_gpu.h} inline device functions.  The library supports
-2\,MB huge pages (\texttt{FOLL\_LONGTERM}) for reduced TLB pressure.
 
 \subsection{VFS Integration}
 
@@ -774,9 +692,18 @@ a context structure for CUDA kernels to issue CE transfers via
   rename, unlink, setattr.  All write operations go through the hash
   overlay; the base image is never modified.
 \item \textbf{File operations}: \texttt{read\_iter} performs zero-copy
-  reads by returning pointers into DAX memory.  For pcache-backed
-  data, the read path pins the cache slot (incrementing refcount)
-  before returning data, preventing eviction during the read.
+  reads by returning pointers into DAX memory.  For overlay data, the
+  read path detects physically contiguous pages and coalesces them
+  into a single \texttt{copy\_to\_iter} call: because data pages are
+  raw 4\,KB allocations with no header, pages allocated by the same
+  bump operation are adjacent in memory.  After looking up the first
+  page (via the per-inode xarray cache), the read path checks whether
+  subsequent pages are physically adjacent and, if so, extends the
+  copy region.  For a 16\,MB sequential read of sequentially written
+  data, this reduces the operation from 4,096 individual copies to a
+  single contiguous transfer.  For pcache-backed data, the read path
+  pins the cache slot (incrementing refcount) before returning data,
+  preventing eviction during the read.
 \item \textbf{Address space operations}: \texttt{readpage}/\texttt{readahead}
   for integration with the kernel page cache on non-DAX access paths.
 \end{itemize}
@@ -804,14 +731,24 @@ toolchain includes \textbf{mkdaxfs} for creating filesystem images
 from directory trees (supporting static, split, and empty modes) and
 \textbf{daxfs-inspect} for read-only inspection of mounted instances.
 
-\subsection{GPU Mapping Library}
+\subsection{GPU P2PDMA Integration}
+\label{sec:gpu}
 
-A user-space library (\texttt{daxfs-gpu-map.\{c,h\}}) encapsulates the
-GPU mapping path described in \S\ref{sec:gpu}.  After mapping,
-the library queries \texttt{DAXFS\_IOC\_GET\_GPU\_INFO} and returns a
-\texttt{daxfs\_gpu\_ctx} structure containing device pointers to the
-page cache metadata and data area.  CUDA kernels receive this context
-as a launch parameter.
+Because \daxfs operates on DAX memory, it can export the filesystem
+region to GPU accelerators on the same PCIe fabric via
+\texttt{dma-buf}.  The \texttt{DAXFS\_IOC\_GET\_DMABUF} ioctl returns
+a dma-buf file descriptor for the mount's DAX region, which a GPU
+driver can then map for peer-to-peer reads without CPU-mediated copies.
+
+We prototype a P2PDMA integration using modified NVIDIA open GPU
+kernel modules~\cite{cxlmemuring:gpu} that register the dma-buf
+region as pinned GPU-accessible memory via custom ioctls.  GPU threads
+can then issue Copy Engine transfers directly between VRAM and the DAX
+region.  Because \daxfs's coordination is built entirely on
+\texttt{cmpxchg}, GPU threads can also participate in page cache
+lookups by issuing PCIe AtomicOp TLPs, which the memory controller
+serializes alongside CPU atomics.  We evaluate the feasibility of this
+path with microbenchmarks in \S\ref{sec:gpu-eval}.
 
 %-------------------------------------------------------------------------------
 \section{Evaluation}
@@ -1055,24 +992,26 @@ AtomicOp bandwidth rather than software overhead, confirming that
 \label{fig:gpu-bench}
 \end{figure*}
 
-\subsection{End-to-End GPU Data Path Analysis}
+\subsection{End-to-End GPU Data Path Projection}
 \label{sec:e2e-gpu}
 
-To contextualize the microbenchmark results, we estimate the
-end-to-end benefit of \daxfs's GPU zero-copy path for loading a
-70B-parameter LLM (140\,GB at FP16).  The conventional path
+To illustrate the \emph{potential} of \daxfs's GPU zero-copy path, we
+present a back-of-envelope projection (not a measurement) for loading
+a 70B-parameter LLM (140\,GB at FP16).  The conventional path
 (\texttt{read()} + \texttt{cudaMemcpy}) performs two copies: kernel
 page cache to user buffer ($\sim$12\,GB/s for large sequential reads)
 and user buffer to GPU via PCIe~5.0 ($\sim$50\,GB/s unidirectional).
-With \daxfs, the GPU reads directly from DAX memory over PCIe, a
+With \daxfs, the GPU would read directly from DAX memory over PCIe, a
 single copy at PCIe bandwidth.  For 140\,GB of VALID page cache data,
-\daxfs's GPU path requires 140\,GB / 50\,GB/s $\approx$ 2.8\,s,
+the projected GPU path would require 140\,GB / 50\,GB/s $\approx$ 2.8\,s,
 whereas the conventional two-copy path requires at least
 140/12 + 140/50 $\approx$ 14.5\,s (assuming no overlap).  GPU-initiated
 cache claims for cold pages add a one-time cost of at most 140\,GB /
 4\,KB $\times$ 4.4\,$\mu$s $\approx$ 154\,s, but this is a
-worst-case serialized estimate; in practice, claims are pipelined
+worst-case serialized estimate; in practice, claims would be pipelined
 across GPU threads and amortized by the CPU's backing-file fill rate.
+Validating this projection with end-to-end workload measurements is an
+important direction for future work.
 
 \subsection{Multi-Host Evaluation}
 \label{sec:multihost}
@@ -1182,10 +1121,13 @@ hosts sharing a single namespace and cache through hardware-coherent
 load/store operations, with no network protocol overhead.  \daxfs
 exploits this by using \texttt{cmpxchg} as its sole coordination
 primitive, achieving lock-free concurrent writes, cooperative caching,
-and zero-copy access in a unified design.  Because the filesystem
-operates directly on DAX memory, GPU accelerators on the same PCIe
-fabric can read file data via \texttt{dma-buf} P2P without
-CPU-mediated copies.
+and zero-copy access in a unified design.  Because the filesystem's
+coordination relies solely on \texttt{cmpxchg}, the design extends
+naturally to GPU accelerators on the same PCIe fabric; our
+microbenchmarks confirm that GPU threads can perform page cache
+lookups and CAS operations at PCIe~5.0 bandwidth limits, establishing
+the feasibility of GPU-direct data access as a promising direction
+for future work.
 
 Our evaluation on DRAM-backed DAX memory shows that \daxfs matches or
 exceeds tmpfs throughput on most workloads, achieving up to
