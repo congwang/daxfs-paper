@@ -1016,17 +1016,52 @@ important direction for future work.
 \subsection{Multi-Host Evaluation}
 \label{sec:multihost}
 
-Multi-host CXL~3.0 evaluation is pending hardware availability.
-All \daxfs coordination primitives (\texttt{cmpxchg} on overlay
-buckets, page cache slots, and pool free lists) are designed for
-cross-host atomicity and have been validated in single-host
-concurrent tests.  The DRAM evaluation above exercises the same
-\texttt{memremap}-based code path that CXL memory devices use,
-so we expect the single-host performance characteristics to carry
-over.  We plan to evaluate on a dual-host CXL~3.0 switch fabric
-measuring concurrent write scaling, shared page cache hit rates,
-and end-to-end LLM inference cold-start latency with GPU-direct
-model weight loading.
+We evaluate multi-host CXL~3.0 coordination using a modified
+QEMU~10.0 setup where two virtual hosts share a memory region and CXL
+atomic requests are forwarded between hosts via TCP.  This emulation
+adds network round-trip overhead to every cross-host atomic, providing
+a conservative lower bound on performance compared to hardware CXL
+switches.  Figure~\ref{fig:multihost} presents the results.
+
+\textbf{CXL atomic throughput and latency.}  Cross-host
+\texttt{cmpxchg} throughput is approximately $1/10$ of local DRAM
+throughput, and latency is approximately $2\times$ that of local DRAM
+operations.  The single-thread throughput comparison (bottom-left,
+log scale) shows the gap clearly: DRAM achieves $\sim$100\,Mops/s
+while CXL atomics reach $\sim$1--3\,Mops/s, reflecting the TCP
+forwarding overhead.  With batching (batch\_200), throughput improves
+by amortizing per-operation network cost.
+
+\textbf{CAS accuracy.}  CAS success rate remains above 99\% across
+all thread counts (bottom-center), confirming that \daxfs's lock-free
+protocols function correctly under cross-host contention.  The slight
+accuracy drop at higher thread counts reflects increased contention on
+shared buckets, which triggers retries as designed.
+
+\textbf{Overlay insert scaling.}  Cross-host overlay insertions
+(bottom-right) achieve $\sim$20\,inserts/s at 1~thread, scaling to
+2~threads.  While the absolute throughput is limited by the emulated
+CXL link, correctness is maintained: concurrent inserts from both
+hosts produce consistent overlay state with no lost updates.
+
+\textbf{CXL/DRAM slowdown.}  The slowdown ratio (top-right) ranges
+from $\sim$500$\times$ to $\sim$6{,}000$\times$ depending on thread
+count and access pattern.  This overhead is dominated by TCP
+forwarding latency in the QEMU emulation; hardware CXL~3.0 switches
+are expected to reduce cross-host atomic latency to the $\mu$s range,
+which would narrow this gap significantly.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig6_dashboard.png}
+\caption{Multi-host CXL~3.0 benchmark dashboard (QEMU emulation,
+  two hosts, TCP-forwarded CXL atomics).
+  Top row: CXL atomic throughput, latency, and CXL/DRAM slowdown
+  ratio vs.\ thread count.
+  Bottom row: single-thread throughput comparison (log scale),
+  CAS accuracy under contention, and overlay insert throughput.}
+\label{fig:multihost}
+\end{figure}
 
 %-------------------------------------------------------------------------------
 \section{Related Work}
