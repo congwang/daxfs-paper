@@ -186,10 +186,12 @@ collectively require a new filesystem design.
 tmpfs, ext4-dax, and NOVA each maintain per-host metadata (superblock,
 inode cache, dentry cache) and per-host page caches.  Even if two hosts
 map the same physical memory, each host instantiates independent VFS
-state.  When 8 hosts serve the same LLM model, this means 8 copies of
-the page cache metadata and 8 independent directory caches, wasting
-CXL memory capacity.  A single 70B-parameter model at FP16
-occupies 140\,GB; a pool serving $N$ hosts cannot afford $N$ copies.
+state.  The metadata overhead itself is modest (MBs per host), but
+the real cost is data duplication: each host's page cache independently
+caches file data from the shared region.  A single 70B-parameter LLM
+at FP16 occupies 140\,GB; with $N$ hosts each caching the model in
+their own page cache, the pool must hold up to $N \times 140$\,GB of
+redundant copies.
 
 \paragraph{No Multi-Host Coordination.}
 Existing DAX filesystems assume a single-host, single-writer model.
