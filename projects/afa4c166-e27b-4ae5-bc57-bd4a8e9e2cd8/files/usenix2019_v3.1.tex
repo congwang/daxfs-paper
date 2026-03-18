@@ -1099,11 +1099,12 @@ shared caching) where these features are rarely needed.
 %-------------------------------------------------------------------------------
 
 CXL shared memory enables a new filesystem design point: multiple
-hosts sharing a single namespace and cache through hardware-coherent
-load/store operations, with no network protocol overhead.  \daxfs
-exploits this by using \texttt{cmpxchg} as its sole coordination
-primitive, achieving lock-free concurrent writes, cooperative caching,
-and zero-copy access in a unified design.
+hosts sharing a single namespace and cache through coherent load/store
+operations, with no network protocol overhead.  \daxfs exploits this
+by using \texttt{cmpxchg} as its sole coordination primitive,
+achieving lock-free concurrent writes, cooperative caching with
+decentralized MH-clock eviction, and zero-copy access in a unified
+design.
 
 We validate multi-host correctness using QEMU-emulated CXL~3.0,
 confirming $>$99\% CAS accuracy under cross-host contention with no
