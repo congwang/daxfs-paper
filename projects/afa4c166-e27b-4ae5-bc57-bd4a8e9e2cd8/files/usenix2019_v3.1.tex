@@ -836,13 +836,14 @@ per-inode xarray.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{read_throughput.png}
-\caption{Sequential read throughput comparison across filesystems.
+\caption{Sequential read throughput comparison across filesystems
+  (Intel Xeon Gold 5418Y, DRAM-backed DAX).
   Left: 16\,MB sequential read; right: 1\,MB sequential read.
-  \daxfs achieves 106.7\,MB/s on the large sequential workload
-  (4.1$\times$ ext4-dax, 22.2$\times$ NOVA) and matches tmpfs
-  on the 1\,MB file (100\,MB/s each), showing that the lock-free
-  overlay adds negligible overhead once pages are cached in the
-  per-inode xarray.}
+  \daxfs achieves 59.2\,MB/s on the large sequential workload
+  (6.2$\times$ ext4-dax) and matches tmpfs on the 1\,MB file
+  (100\,MB/s each).  The 16\,MB gap versus tmpfs (228.6\,MB/s)
+  reflects the overhead of per-page overlay resolution on large
+  sequential scans; at 1\,MB the overhead is amortized.}
 \label{fig:read-throughput}
 \end{figure}
 
@@ -850,9 +851,9 @@ per-inode xarray.
 \centering
 \includegraphics[width=\columnwidth]{read_latency.png}
 \caption{Sequential read latency comparison (lower is better).
-  \daxfs completes a 16\,MB read in 153.6\,ms, 4.1$\times$ faster
-  than ext4-dax and 21.8$\times$ faster than NOVA.  On 1\,MB files,
-  \daxfs and tmpfs both finish in 14\,ms.}
+  \daxfs completes a 16\,MB read in 274.2\,ms, 6.1$\times$ faster
+  than ext4-dax (1,660.7\,ms).  On 1\,MB files, \daxfs and tmpfs
+  finish in 18.0 and 17.7\,ms respectively.}
 \label{fig:read-latency}
 \end{figure}
 
@@ -860,9 +861,12 @@ per-inode xarray.
 \centering
 \includegraphics[width=\columnwidth]{metadata.png}
 \caption{Metadata operation latency on 1,000 files (lower is better).
-  \daxfs matches tmpfs on \texttt{readdir} (40.0 vs.\ 39.8\,ms) and
-  achieves the lowest \texttt{stat} latency (3,550\,ms), 5.6\% faster
-  than NOVA and 13.5\% faster than ext4-dax, due to flat overlay lookup.}
+  \daxfs achieves the lowest \texttt{stat} latency (3,528\,ms),
+  4.6\% faster than ext4-dax (3,699\,ms) and 6.3\% faster than tmpfs
+  (3,764\,ms), due to flat overlay lookup.  On \texttt{readdir},
+  \daxfs (33.8\,ms) is slower than tmpfs (23.1\,ms) and ext4-dax
+  (23.9\,ms) due to the cost of iterating both the base image dirent
+  array and the overlay linked list.}
 \label{fig:metadata}
 \end{figure}
 
@@ -872,10 +876,11 @@ per-inode xarray.
 \caption{Normalised performance summary across all benchmarks
   (Intel Xeon Gold 5418Y, DRAM-backed DAX).  Each group is
   normalised to the best-performing filesystem.  \daxfs matches
-  or approaches tmpfs on sequential reads and metadata operations
-  while dramatically outperforming ext4-dax and NOVA on data I/O.
-  On \texttt{stat}, \daxfs's flat overlay lookup yields the lowest
-  absolute latency among all four filesystems.}
+  tmpfs on 1\,MB sequential reads and achieves the lowest
+  \texttt{stat} latency, while outperforming ext4-dax on data I/O.
+  The 16\,MB sequential read and \texttt{readdir} gaps versus tmpfs
+  reflect per-page overlay lookup and dual-source directory iteration
+  overhead.}
 \label{fig:summary}
 \end{figure}
 
