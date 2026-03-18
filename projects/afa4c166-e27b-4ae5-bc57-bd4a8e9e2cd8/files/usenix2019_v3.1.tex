@@ -656,25 +656,6 @@ Lookup operations use \texttt{smp\_rmb} after reading
 On x86, these compile to compiler barriers (x86 provides TSO
 ordering); on ARM64, they emit fence instructions.
 
-\subsection{GPU P2PDMA Access}
-\label{sec:gpu}
-
-Because \daxfs operates on DAX memory, it can export the filesystem
-region to GPU accelerators on the same PCIe fabric via
-\texttt{dma-buf}.  The \texttt{DAXFS\_IOC\_GET\_DMABUF} ioctl returns
-a dma-buf file descriptor for the mount's DAX region, which a GPU
-driver can then map for peer-to-peer reads without CPU-mediated copies.
-
-We prototype a P2PDMA integration using modified NVIDIA open GPU
-kernel modules~\cite{cxlmemuring:gpu} that register the dma-buf
-region as pinned GPU-accessible memory via custom ioctls.  GPU threads
-can then issue Copy Engine transfers directly between VRAM and the DAX
-region.  Because \daxfs's coordination is built entirely on
-\texttt{cmpxchg}, GPU threads can also participate in page cache
-lookups by issuing PCIe AtomicOp TLPs, which the memory controller
-serializes alongside CPU atomics.  We evaluate the feasibility of this
-path with microbenchmarks in \S\ref{sec:gpu-eval}.
-
 %-------------------------------------------------------------------------------
 \section{Implementation}
 \label{sec:impl}
@@ -697,26 +678,11 @@ interface introduced in Linux~5.6.
 \item \textbf{DMA buffer.}  Using the \texttt{fsopen} API, a
   user-space process passes a dma-buf file descriptor via
   \texttt{FSCONFIG\_SET\_FD}.  \daxfs calls \texttt{dma\_buf\_vmap()}
-  to obtain a kernel virtual mapping.  This path also enables
-  GPU zero-copy access (\S\ref{sec:gpu}).
+  to obtain a kernel virtual mapping.
 \end{itemize}
 
 Both modes bypass the kernel's \texttt{dax\_device} abstraction entirely,
 mapping memory directly into the filesystem's address space.
-
-\subsection{GPU P2PDMA Integration}
-
-The GPU integration uses modified NVIDIA open GPU kernel
-modules~\cite{cxlmemuring:gpu} (based on v575.57.08) that add five
-new kernel functions (\texttt{RmP2PRegisterCxlBuffer},
-\texttt{RmP2PUnregisterCxlBuffer}, \texttt{RmP2PGetCxlPages},
-\texttt{RmP2PPutCxlPages}, \texttt{RmP2PCxlDmaRequest}) and four
-ioctls for CXL buffer lifecycle management.  A user-space library
-(\texttt{daxfs-gpu-map}) wraps the ioctl interface: it registers the
-DAX region as a CXL buffer, obtains the buffer handle, and provides
-a context structure for CUDA kernels to issue CE transfers via
-\texttt{daxfs\_gpu.h} inline device functions.  The library supports
-2\,MB huge pages (\texttt{FOLL\_LONGTERM}) for reduced TLB pressure.
 
 \subsection{VFS Integration}
 
@@ -766,14 +732,24 @@ toolchain includes \textbf{mkdaxfs} for creating filesystem images
 from directory trees (supporting static, split, and empty modes) and
 \textbf{daxfs-inspect} for read-only inspection of mounted instances.
 
-\subsection{GPU Mapping Library}
+\subsection{GPU P2PDMA Integration}
+\label{sec:gpu}
 
-A user-space library (\texttt{daxfs-gpu-map.\{c,h\}}) encapsulates the
-GPU mapping path described in \S\ref{sec:gpu}.  After mapping,
-the library queries \texttt{DAXFS\_IOC\_GET\_GPU\_INFO} and returns a
-\texttt{daxfs\_gpu\_ctx} structure containing device pointers to the
-page cache metadata and data area.  CUDA kernels receive this context
-as a launch parameter.
+Because \daxfs operates on DAX memory, it can export the filesystem
+region to GPU accelerators on the same PCIe fabric via
+\texttt{dma-buf}.  The \texttt{DAXFS\_IOC\_GET\_DMABUF} ioctl returns
+a dma-buf file descriptor for the mount's DAX region, which a GPU
+driver can then map for peer-to-peer reads without CPU-mediated copies.
+
+We prototype a P2PDMA integration using modified NVIDIA open GPU
+kernel modules~\cite{cxlmemuring:gpu} that register the dma-buf
+region as pinned GPU-accessible memory via custom ioctls.  GPU threads
+can then issue Copy Engine transfers directly between VRAM and the DAX
+region.  Because \daxfs's coordination is built entirely on
+\texttt{cmpxchg}, GPU threads can also participate in page cache
+lookups by issuing PCIe AtomicOp TLPs, which the memory controller
+serializes alongside CPU atomics.  We evaluate the feasibility of this
+path with microbenchmarks in \S\ref{sec:gpu-eval}.
 
 %-------------------------------------------------------------------------------
 \section{Evaluation}
