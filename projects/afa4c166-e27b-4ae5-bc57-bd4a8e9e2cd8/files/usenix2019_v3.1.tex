@@ -162,11 +162,14 @@ Flat validatable format      & \cmark & \xmark  & \xmark  & N/A    & \xmark & \c
 \paragraph{CXL 3.0 shared memory model.}
 CXL~3.0~\cite{cxl22:spec} introduces Global Fabric Attached Memory
 (GFAM): a memory device attached to a CXL switch fabric that is
-directly accessible by multiple hosts through hardware-coherent
-load/store operations.  For the first time, independent servers can
-perform atomic read-modify-write operations on the same physical
-memory with cache-line granularity and hardware-enforced coherence,
-without a network stack, RDMA verbs, or software coherence protocol.
+directly accessible by multiple hosts via load/store operations.
+The device coherency engine (DCOH) maintains a snoop filter that
+provides hardware cache coherence (HDM-DB back-invalidation) for
+selected memory regions; \daxfs targets this hardware-coherent region
+for its metadata and coordination structures.  For the first time
+over a commodity interconnect, independent servers can perform atomic
+read-modify-write operations on the same physical memory with
+cache-line granularity, with minimal software coherence overhead.
 A 64-bit \texttt{cmpxchg} issued by Host~A on a CXL memory address
 is atomic with respect to a concurrent \texttt{cmpxchg} by Host~B on
 the same address.  This primitive is the foundation of \daxfs's
