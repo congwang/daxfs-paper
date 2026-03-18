@@ -54,9 +54,9 @@ byte-addressable memory with hardware-coherent atomics, yet no
 existing filesystem exploits this for lock-free multi-host
 coordination.  We introduce \daxfs, a lock-free Linux
 filesystem designed for multi-host concurrent access to CXL shared
-memory, using hardware-supported \texttt{cmpxchg} as its sole
-coordination primitive and eliminating locks, journaling, and central
-coordinators.  A CAS-based hash overlay enables concurrent file writes
+memory, using hardware-supported \texttt{cmpxchg} for multi-host
+coordination and keeping the CPU data path lock-free without
+journaling or central coordinators.  A CAS-based hash overlay enables concurrent file writes
 from independent hosts, and a Multi-Host CLOCK (MH-clock)
 algorithm decentralizes shared page cache eviction across hosts.
 Under QEMU-emulated multi-host CXL contention, \daxfs maintains
@@ -98,15 +98,15 @@ filesystem that exploits CXL hardware atomics.
 
 To bridge this gap, we introduce \daxfs, a lock-free Linux
 filesystem designed for multi-host concurrent access to CXL shared
-memory.  \daxfs uses hardware-supported \texttt{cmpxchg} as its sole
-coordination primitive, eliminating locks, journaling, and central
-coordinators entirely.  A CAS-based hash overlay enables concurrent
+memory.  \daxfs uses hardware-supported \texttt{cmpxchg} for
+multi-host coordination, keeping the CPU data path lock-free without
+journaling or central coordinators.  A CAS-based hash overlay enables concurrent
 file writes from independent hosts, and a Multi-Host CLOCK
 (MH-clock) algorithm decentralizes shared page cache eviction, both
 operating through \texttt{cmpxchg} on DAX memory
-(\S\ref{sec:design}--\S\ref{sec:impl}).  Because the coordination is
-built entirely on \texttt{cmpxchg}, the design also extends to GPU
-accelerators that issue PCIe AtomicOps over the same fabric
+(\S\ref{sec:design}--\S\ref{sec:impl}).  Because the core
+coordination path is built on \texttt{cmpxchg}, the design also admits a
+preliminary GPU path for accelerators that issue PCIe AtomicOps over the same fabric
 (\S\ref{sec:gpu}).
 
 To summarize, this paper makes three contributions:
