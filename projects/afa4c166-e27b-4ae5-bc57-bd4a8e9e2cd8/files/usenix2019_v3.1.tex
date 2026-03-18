@@ -719,15 +719,23 @@ overhead.  Multi-host evaluation on CXL hardware is discussed in
 
 \subsection{Experimental Setup}
 
-\textbf{Hardware.}  Dual-socket Intel Xeon (48 cores, 96 threads),
-512\,GB DDR5, NVIDIA RTX~5090 (PCIe~5.0 x16).  \daxfs is backed by a
-512\,MB contiguous DRAM region allocated at runtime via a CMA-based
-allocator and mapped with \texttt{memremap(MEMREMAP\_WB)}, exercising
-the same write-back-cached code path that CXL memory devices use.
-For GPU benchmarks, the DAX region is additionally exported to the GPU
-via \texttt{dma-buf} (\S\ref{sec:gpu}).
+We use two hardware configurations:
 
-\textbf{Software.}  Linux 7.0.  Benchmarks use
+\textbf{Platform~A} (Table~\ref{tab:results}, GPU benchmarks).
+Dual-socket Intel Xeon (48 cores, 96 threads), 512\,GB DDR5, NVIDIA
+RTX~5090 (PCIe~5.0 x16).  \daxfs is backed by a 512\,MB contiguous
+DRAM region allocated at runtime via a CMA-based allocator and mapped
+with \texttt{memremap(MEMREMAP\_WB)}, exercising the same
+write-back-cached code path that CXL memory devices use.  For GPU
+benchmarks, the DAX region is additionally exported to the GPU via
+\texttt{dma-buf} (\S\ref{sec:gpu}).
+
+\textbf{Platform~B} (Figures~\ref{fig:read-throughput}--\ref{fig:summary}).
+Intel Xeon Gold 5418Y, DRAM-backed DAX.  This platform compares \daxfs
+against ext4-dax and tmpfs on sequential read throughput, latency, and
+metadata operations.
+
+\textbf{Software.}  Linux 7.0 on both platforms.  Benchmarks use
 \texttt{fio}~3.x with the synchronous I/O engine.  Each test writes a
 64\,MB file, then reads it back.  The filesystem is reformatted
 between write tests to ensure first-write measurements reflect cold
