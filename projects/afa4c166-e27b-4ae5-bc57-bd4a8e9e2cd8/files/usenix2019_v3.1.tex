@@ -108,35 +108,33 @@ state across hosts; distributed filesystems add network overhead that
 CXL should eliminate; FamFS~\cite{groves24:Famfs} targets CXL but
 restricts writes to a single master (\S\ref{sec:motivation}).
 
-We present \daxfs, a Linux kernel filesystem module for CXL shared
-memory.  \daxfs treats byte-addressable memory as the storage medium
-and uses \texttt{cmpxchg} as its sole coordination primitive,
-requiring no locks, logs, or journals.  Its key contributions are:
+This paper makes three contributions:
 
 \begin{enumerate}
-\item \textbf{CAS-based hash overlay.}  An open-addressing hash table
-  in DAX memory where all mutations use a single 64-bit
-  \texttt{cmpxchg}.  Multiple hosts insert concurrently
-  with linearizable semantics.
+\item \textbf{The design and implementation of \daxfs}, the first
+  Linux filesystem that enables lock-free multi-host writes on CXL
+  shared memory using \texttt{cmpxchg} as its sole coordination
+  primitive.  \daxfs requires no locks, logs, or journals; its
+  CAS-based hash overlay, flat on-disk format, and zero-copy read
+  path are all designed for direct operation on byte-addressable DAX
+  memory (\S\ref{sec:design}--\S\ref{sec:impl}).
 
-\item \textbf{Cooperative shared page cache with MH-clock eviction.}
-  A demand-paged cache in DAX memory serves all hosts simultaneously.
-  A novel multi-host clock (MH-clock) eviction algorithm enables
-  fully decentralized victim selection via \texttt{cmpxchg}, with no
-  centralized eviction daemon or invalidation protocol.
+\item \textbf{MH-clock}, a decentralized multi-host cache eviction
+  algorithm adapted from CLOCK for lock-free operation across
+  CXL-connected hosts.  Each host independently selects victims
+  within its local probe window via \texttt{cmpxchg}, with no
+  centralized eviction daemon or invalidation protocol
+  (\S\ref{sec:pcache}).
 
-\item \textbf{Multi-host correctness validation.}  Using
-  QEMU-emulated CXL~3.0 (two hosts, TCP-forwarded atomics), we
-  verify that \daxfs's lock-free protocols maintain $>$99\% CAS
-  accuracy under cross-host contention with no lost updates.
+\item \textbf{An evaluation} on DRAM-backed DAX and QEMU-emulated
+  CXL~3.0, showing that \daxfs matches or exceeds tmpfs throughput
+  on most single-host workloads (up to $1.73\times$ random write
+  throughput at 4~threads) and maintains $>$99\% CAS accuracy under
+  cross-host contention with no lost updates.  Preliminary GPU
+  microbenchmarks further confirm that the \texttt{cmpxchg}-based
+  design extends to GPU threads at PCIe~5.0 bandwidth limits
+  (\S\ref{sec:evaluation}).
 \end{enumerate}
-
-On single-host DRAM-backed DAX, \daxfs matches or exceeds tmpfs on
-most fio workloads (up to $1.73\times$ random write throughput at
-4~threads).  Additionally, because the coordination relies solely on
-\texttt{cmpxchg}, the design extends to GPU accelerators; preliminary
-microbenchmarks confirm GPU threads can perform page cache operations
-at PCIe~5.0 bandwidth limits (\S\ref{sec:gpu}).
 
 \begin{table*}[t]
 \centering
