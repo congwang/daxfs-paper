@@ -186,12 +186,13 @@ collectively require a new filesystem design.
 tmpfs, ext4-dax, and NOVA each maintain per-host metadata (superblock,
 inode cache, dentry cache) and per-host page caches.  Even if two hosts
 map the same physical memory, each host instantiates independent VFS
-state.  The metadata overhead itself is modest (MBs per host), but
-the real cost is data duplication: each host's page cache independently
-caches file data from the shared region.  A single 70B-parameter LLM
-at FP16 occupies 140\,GB; with $N$ hosts each caching the model in
-their own page cache, the pool must hold up to $N \times 140$\,GB of
-redundant copies.
+state.  CXL shared memory makes the data directly accessible to all
+hosts, yet existing filesystems still create per-host page cache copies
+of that data, wasting the very memory capacity that disaggregation is
+meant to pool.  For workloads sharing large read-only datasets
+(\eg container base images, shared model weights, reference databases),
+$N$ hosts produce $N$ redundant copies of data that already resides in
+shared memory.
 
 \paragraph{No Multi-Host Coordination.}
 Existing DAX filesystems assume a single-host, single-writer model.
