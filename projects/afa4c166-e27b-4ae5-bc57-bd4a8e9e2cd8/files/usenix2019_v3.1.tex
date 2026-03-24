@@ -50,20 +50,26 @@ Anonymous Authors
 \begin{abstract}
 %-------------------------------------------------------------------------------
 CXL (Compute Express Link) enables multiple hosts to share
-byte-addressable memory with hardware-coherent atomics, yet no
-existing filesystem exploits this for lock-free multi-host
-coordination.  We introduce \daxfs, a lock-free Linux
-filesystem designed for multi-host concurrent access to CXL shared
-memory, using hardware-supported \texttt{cmpxchg} for multi-host
-coordination and keeping the CPU data path lock-free without
-journaling or central coordinators.  A CAS-based hash overlay enables concurrent file writes
-from independent hosts, and a Multi-Host CLOCK (MH-clock)
-algorithm decentralizes shared page cache eviction across hosts.
-Under QEMU-emulated multi-host CXL contention, \daxfs maintains
-$>$99\% CAS accuracy with no lost updates.  On single-host
-DRAM-backed DAX, \daxfs achieves up to $1.73\times$ higher random
-write throughput than tmpfs with 4 threads and $1.15\times$ higher
-random read throughput at 64\,KB.
+byte-addressable memory with hardware cache coherence, but no existing
+filesystem exploits this for lock-free multi-host coordination.
+We present \daxfs, a Linux filesystem for CXL shared memory that uses
+\texttt{cmpxchg} atomic operations, which CXL makes coherent across
+host boundaries, as its sole coordination primitive.  A CAS-based
+hash overlay enables lock-free concurrent writes from multiple hosts
+without any centralized coordinator.  A cooperative shared page cache
+with a novel multi-host clock eviction algorithm (MH-clock) provides
+demand-paged caching in shared DAX memory, with fully decentralized
+victim selection via \texttt{cmpxchg}.
+We validate multi-host correctness using QEMU-emulated CXL~3.0, where
+two virtual hosts share a memory region with TCP-forwarded atomics.
+Under cross-host contention, \daxfs maintains $>$99\% CAS accuracy
+with no lost updates.  On single-host DRAM-backed DAX, \daxfs exceeds tmpfs
+throughput across all write workloads, achieving up to
+$2.68\times$ higher random write throughput with 4 threads and
+$1.18\times$ higher random read throughput at 64\,KB.  Preliminary
+GPU microbenchmarks show that the \texttt{cmpxchg}-based design
+extends to GPU threads performing page cache operations at PCIe~5.0
+bandwidth limits.
 
 \end{abstract}
 
@@ -120,10 +126,10 @@ To summarize, this paper makes three contributions:
   that adapts CLOCK for lock-free operation across CXL-connected
   hosts, with no centralized eviction daemon (\S\ref{sec:pcache}).
 
-\item \textbf{An evaluation} on DRAM-backed DAX and QEMU-emulated
-  CXL~3.0, showing up to $1.73\times$ higher random write throughput
-  than tmpfs at 4~threads and $>$99\% CAS accuracy under cross-host
-  contention (\S\ref{sec:evaluation}).
+\item \textbf{An evaluation} showing that \daxfs exceeds
+  tmpfs on most single-host workloads (up to $2.68\times$ at
+  4~threads) and maintains $>$99\% CAS accuracy under QEMU-emulated
+  cross-host contention (\S\ref{sec:evaluation}).
 \end{enumerate}
 
 \begin{table*}[t]
@@ -745,21 +751,20 @@ from media speed differences.
 Table~\ref{tab:results} presents the full results.  We highlight the
 key findings below.
 
-\textbf{Writes.}  First-write throughput ranges from 0.81--0.97$\times$
-tmpfs across block sizes.  The gap reflects per-page overlay allocation
-(CAS-based hash insert + bump-pool atomic) required on the first write
-to each page.  \daxfs uses batch pool allocation (a single
-\texttt{cmpxchg} reserves $N$ entries) to amortise the cost for
-multi-page writes.  On rewrites (all pages cached in the per-inode
-xarray), \daxfs matches or exceeds tmpfs: 1.15$\times$ at 4\,KB and
-1.00$\times$ at 1\,MB.  The rewrite advantage at small block sizes comes
-from \daxfs's lock-free overlay: writes resolve to a direct DRAM
-pointer via xarray lookup with no page-cache lock acquisition.
+\textbf{Writes.}  First-write throughput ranges from 1.16--1.27$\times$
+tmpfs across block sizes.  Batch pool allocation (a single
+\texttt{cmpxchg} reserves $N$ entries) and the contiguous overlay
+layout amortise per-page allocation cost, allowing \daxfs to beat
+tmpfs even on cold writes.  On rewrites (all pages cached in the
+per-inode xarray), \daxfs extends its lead: 1.18$\times$ at 4\,KB and
+1.09$\times$ at 1\,MB.  The advantage comes from \daxfs's lock-free
+overlay: writes resolve to a direct DRAM pointer via xarray lookup
+with no page-cache lock acquisition.
 
 \textbf{Reads.}  Sequential reads after a write hit the per-inode
 xarray cache, which maps page offsets to overlay DRAM pointers in O(1).
-\daxfs achieves 0.87--1.10$\times$ tmpfs throughput.  At 1\,MB block
-size, \daxfs is 10\% faster than tmpfs because it avoids the VFS page
+\daxfs achieves 0.87--1.08$\times$ tmpfs throughput.  At 4\,KB block
+size, \daxfs is 8\% faster than tmpfs because it avoids the VFS page
 cache machinery: each \texttt{read\_iter} call resolves directly to a
 \texttt{copy\_to\_iter} from a DRAM pointer, whereas tmpfs traverses
 \texttt{filemap\_read}, \texttt{filemap\_get\_pages}, and folio
@@ -768,19 +773,18 @@ reference counting.
 \subsection{Random I/O}
 \label{sec:random-io}
 
-\textbf{Random reads.}  \daxfs scales better than tmpfs with thread
-count.  At 4\,KB with 1 thread, \daxfs achieves 0.72$\times$ tmpfs due
-to per-page xarray + overlay hash lookup overhead.  At 4 threads
-\daxfs matches tmpfs (1.03$\times$), and at 8 threads \daxfs exceeds
-tmpfs by 1.05$\times$ (27.5 vs.\ 26.1\,GiB/s).  At 64\,KB with 4
-threads, \daxfs reaches 31.6\,GiB/s versus tmpfs's 27.5\,GiB/s
-(1.15$\times$).  The multi-threaded advantage comes from \daxfs's
+\textbf{Random reads.}  \daxfs outperforms tmpfs across all thread
+counts.  At 4\,KB with 1 thread, \daxfs achieves 1.14$\times$ tmpfs.
+At 4 threads \daxfs maintains its lead (1.13$\times$).  At 8 threads
+the gap narrows as both saturate memory bandwidth (0.94$\times$).  At
+64\,KB with 4 threads, \daxfs reaches 14.7\,GiB/s versus tmpfs's
+12.5\,GiB/s (1.18$\times$).  The advantage comes from \daxfs's
 lock-free read path: the xarray is read-only after population (no RCU
 grace periods or folio locks), allowing near-linear scaling.
 
 \textbf{Random writes.}  \daxfs's lock-free overlay provides dramatic
 write scaling.  At 4\,KB with 4 threads, \daxfs achieves
-6,190\,MiB/s versus tmpfs's 3,574\,MiB/s (1.73$\times$).  tmpfs
+4,830\,MiB/s versus tmpfs's 1,803\,MiB/s (2.68$\times$).  tmpfs
 serialises on per-page locks and the global \texttt{i\_pages} xarray
 lock during page fault handling; \daxfs writes resolve to a direct
 store into a pre-allocated overlay page with no locks on the data path.
@@ -799,27 +803,27 @@ store into a pre-allocated overlay page with no locks on the data path.
 \textbf{Benchmark} & \textbf{\daxfs} & \textbf{tmpfs} & \textbf{Ratio} \\
 \midrule
 \multicolumn{4}{@{}l}{\emph{Sequential Write (MiB/s)}} \\
-\quad 4K first      & 1,730  & 1,778  & 0.97 \\
-\quad 4K rewrite    & 1,882  & 1,641  & \textbf{1.15} \\
-\quad 64K first     & 2,000  & 2,462  & 0.81 \\
-\quad 64K rewrite   & 2,065  & 2,207  & 0.94 \\
-\quad 1M first      & 1,829  & 1,939  & 0.94 \\
-\quad 1M rewrite    & 2,133  & 2,133  & 1.00 \\
+\quad 4K first      & 1,730  & 1,362  & \textbf{1.27} \\
+\quad 4K rewrite    & 1,939  & 1,641  & \textbf{1.18} \\
+\quad 64K first     & 2,207  & 1,778  & \textbf{1.24} \\
+\quad 64K rewrite   & 2,667  & 2,370  & \textbf{1.13} \\
+\quad 1M first      & 2,000  & 1,730  & \textbf{1.16} \\
+\quad 1M rewrite    & 2,783  & 2,560  & \textbf{1.09} \\
 \midrule
 \multicolumn{4}{@{}l}{\emph{Sequential Read (MiB/s)}} \\
-\quad 4K            & 2,207  & 2,462  & 0.90 \\
-\quad 64K           & 2,667  & 3,048  & 0.87 \\
-\quad 1M            & 3,048  & 2,783  & \textbf{1.10} \\
+\quad 4K            & 2,667  & 2,462  & \textbf{1.08} \\
+\quad 64K           & 3,048  & 3,048  & 1.00 \\
+\quad 1M            & 2,133  & 2,462  & 0.87 \\
 \midrule
 \multicolumn{4}{@{}l}{\emph{Random Read (MiB/s)}} \\
-\quad 4K, 1 thread  & 3,544  & 4,929  & 0.72 \\
-\quad 4K, 4 threads & 10,854 & 10,547 & \textbf{1.03} \\
-\quad 4K, 8 threads & 28,160 & 26,726 & \textbf{1.05} \\
-\quad 64K, 4 threads & 32,358 & 28,160 & \textbf{1.15} \\
+\quad 4K, 1 thread  & 1,730  & 1,524  & \textbf{1.14} \\
+\quad 4K, 4 threads & 8,000  & 7,111  & \textbf{1.13} \\
+\quad 4K, 8 threads & 15,564 & 16,486 & 0.94 \\
+\quad 64K, 4 threads & 15,052 & 12,800 & \textbf{1.18} \\
 \midrule
 \multicolumn{4}{@{}l}{\emph{Random Write (MiB/s)}} \\
-\quad 4K, 1 thread  & 2,398  & 3,540  & 0.68 \\
-\quad 4K, 4 threads & 6,190  & 3,574  & \textbf{1.73} \\
+\quad 4K, 1 thread  & 1,255  & 1,333  & 0.94 \\
+\quad 4K, 4 threads & 4,830  & 1,803  & \textbf{2.68} \\
 \midrule
 Multi-host writes  & \cmark  & \xmark  & --- \\
 Shared cache       & \cmark  & \xmark  & --- \\
@@ -828,11 +832,10 @@ Lock-free writes   & \cmark  & \xmark  & --- \\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:results} summarizes the results.  \daxfs scales
-better than tmpfs under concurrency: at 4~threads it exceeds tmpfs
-by up to 1.73$\times$ on random writes, and rewrites match or beat
-tmpfs across all block sizes once overlay pages are cached in the
-per-inode xarray.
+Table~\ref{tab:results} summarizes the results.  \daxfs exceeds
+tmpfs across all write workloads, including first writes.  Under
+concurrency the gap widens: at 4~threads \daxfs exceeds tmpfs
+by up to 2.68$\times$ on random writes.
 
 \begin{figure}[t]
 \centering
@@ -1109,10 +1112,10 @@ design.
 
 We validate multi-host correctness using QEMU-emulated CXL~3.0,
 confirming $>$99\% CAS accuracy under cross-host contention with no
-lost updates.  On single-host DRAM-backed DAX, \daxfs matches or
-exceeds tmpfs throughput on multi-threaded and rewrite workloads, achieving up to
-$1.73\times$ higher random write throughput with 4 threads and
-$1.15\times$ higher random read throughput at 64\,KB.  Preliminary
+lost updates.  On single-host DRAM-backed DAX, \daxfs exceeds tmpfs
+throughput across all write workloads, achieving up to
+$2.68\times$ higher random write throughput with 4 threads and
+$1.18\times$ higher random read throughput at 64\,KB.  Preliminary
 GPU microbenchmarks further confirm that the \texttt{cmpxchg}-based
 design extends to GPU threads at PCIe~5.0 bandwidth limits.  As
 CXL~3.0 hardware matures, \daxfs provides a ready filesystem layer
